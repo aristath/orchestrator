@@ -6,11 +6,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // WorktreeManager manages git worktrees for parallel task execution
 type WorktreeManager struct {
-	config WorktreeManagerConfig
+	config   WorktreeManagerConfig
+	mergeMu  sync.Mutex // Serializes merge operations to prevent git lock conflicts
 }
 
 // NewWorktreeManager creates a new worktree manager
@@ -54,6 +56,10 @@ func (m *WorktreeManager) Create(taskID string) (*WorktreeInfo, error) {
 
 // Merge merges the worktree branch back to the base branch
 func (m *WorktreeManager) Merge(info *WorktreeInfo, strategy MergeStrategy) (*MergeResult, error) {
+	// Serialize merge operations to prevent concurrent git operations on the main repo
+	m.mergeMu.Lock()
+	defer m.mergeMu.Unlock()
+
 	// First, checkout base branch to ensure we're merging into the right place
 	checkoutCmd := exec.Command("git", "checkout", m.config.BaseBranch)
 	checkoutCmd.Dir = m.config.RepoPath

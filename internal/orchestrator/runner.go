@@ -21,6 +21,11 @@ type TaskResult struct {
 	Error       error
 }
 
+// BackendFactory creates backend instances for tasks.
+// Parameters: agentRole, workDir (worktree path for the task).
+// Returns: Backend instance or error.
+type BackendFactory func(agentRole string, workDir string) (backend.Backend, error)
+
 // ParallelRunnerConfig configures the parallel runner.
 type ParallelRunnerConfig struct {
 	ConcurrencyLimit int                        // Max concurrent tasks (default 4)
@@ -29,6 +34,7 @@ type ParallelRunnerConfig struct {
 	QAChannel        *QAChannel                 // Optional Q&A channel (nil disables)
 	ProcessManager   *backend.ProcessManager    // Process manager for backend creation
 	BackendConfigs   map[string]backend.Config  // Maps agentRole to base backend config
+	BackendFactory   BackendFactory             // Optional factory for testing (overrides BackendConfigs)
 }
 
 // ParallelRunner executes DAG tasks concurrently with git worktree isolation.
@@ -249,6 +255,12 @@ func (r *ParallelRunner) executeTask(ctx context.Context, task *scheduler.Task) 
 
 // createBackend creates a backend instance for the given agent role with worktree WorkDir.
 func (r *ParallelRunner) createBackend(agentRole string, workDir string) (backend.Backend, error) {
+	// Use factory if provided (for testing)
+	if r.config.BackendFactory != nil {
+		return r.config.BackendFactory(agentRole, workDir)
+	}
+
+	// Otherwise use BackendConfigs
 	baseCfg, ok := r.config.BackendConfigs[agentRole]
 	if !ok {
 		return nil, fmt.Errorf("no backend config for agent role %q", agentRole)
