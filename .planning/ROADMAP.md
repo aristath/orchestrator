@@ -17,7 +17,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 3: Parallel Execution with Git Isolation** - Bounded concurrent agents in isolated git worktrees with merge-back and orchestrator Q&A
 - [x] **Phase 4: Event Bus and TUI Integration** - Split-pane Bubble Tea TUI with per-agent viewports, vim navigation, status indicators, and DAG progress
 - [x] **Phase 5: State Management and Session Persistence** - SQLite persistence for task state, conversation history, checkpointing, and session ID continuity
-- [ ] **Phase 6: Resilience and Production Hardening** - Retry with backoff, circuit breakers, failure isolation, and graceful shutdown
+- [x] **Phase 6: Resilience and Production Hardening** - Retry with backoff, circuit breakers, failure isolation, and graceful shutdown
 
 ## Phase Details
 
@@ -133,8 +133,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 06-01-PLAN.md — Retry with exponential backoff, per-backend circuit breakers, and failure isolation in parallel runner
-- [ ] 06-02-PLAN.md — Graceful shutdown with signal handling, ProcessManager integration, and shutdown timeout
+- [x] 06-01-PLAN.md — Retry with exponential backoff, per-backend circuit breakers, and failure isolation in parallel runner
+- [x] 06-02-PLAN.md — Graceful shutdown with signal handling, ProcessManager integration, and shutdown timeout
 
 ## Progress
 
@@ -148,4 +148,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 3. Parallel Execution with Git Isolation | 3/3 | ✓ Complete | 2026-02-10 |
 | 4. Event Bus and TUI Integration | 3/3 | ✓ Complete | 2026-02-10 |
 | 5. State Management and Session Persistence | 3/3 | ✓ Complete | 2026-02-10 |
-| 6. Resilience and Production Hardening | 0/2 | Not started | - |
+| 6. Resilience and Production Hardening | 2/2 | ✓ Complete | 2026-02-10 |
