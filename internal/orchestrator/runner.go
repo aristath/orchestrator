@@ -10,6 +10,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/aristath/orchestrator/internal/backend"
+	"github.com/aristath/orchestrator/internal/events"
 	"github.com/aristath/orchestrator/internal/scheduler"
 	"github.com/aristath/orchestrator/internal/worktree"
 )
@@ -36,6 +37,7 @@ type ParallelRunnerConfig struct {
 	ProcessManager   *backend.ProcessManager    // Process manager for backend creation
 	BackendConfigs   map[string]backend.Config  // Maps agentRole to base backend config
 	BackendFactory   BackendFactory             // Optional factory for testing (overrides BackendConfigs)
+	EventBus         *events.EventBus           // Optional event bus (nil disables event publishing)
 }
 
 // ParallelRunner executes DAG tasks concurrently with git worktree isolation.
@@ -61,6 +63,13 @@ func NewParallelRunner(cfg ParallelRunnerConfig, dag *scheduler.DAG, lockMgr *sc
 		lockMgr:         lockMgr,
 		activeWorktrees: make(map[string]*worktree.WorktreeInfo),
 		results:         []TaskResult{},
+	}
+}
+
+// publish publishes an event to the event bus if configured.
+func (r *ParallelRunner) publish(topic string, event events.Event) {
+	if r.config.EventBus != nil {
+		r.config.EventBus.Publish(topic, event)
 	}
 }
 
@@ -129,6 +138,9 @@ func (r *ParallelRunner) Run(ctx context.Context) ([]TaskResult, error) {
 			}
 			// Task errors are tracked in DAG, not returned here
 		}
+
+		// Publish progress after wave completes
+		r.publishProgress()
 	}
 
 	return r.results, nil
@@ -147,6 +159,8 @@ func (r *ParallelRunner) countRunningTasks() int {
 
 // executeTask executes a single task in its own worktree.
 func (r *ParallelRunner) executeTask(ctx context.Context, task *scheduler.Task) error {
+	startTime := time.Now()
+
 	// Check context early
 	if err := ctx.Err(); err != nil {
 		markErr := fmt.Errorf("context cancelled before execution: %w", err)
@@ -159,6 +173,14 @@ func (r *ParallelRunner) executeTask(ctx context.Context, task *scheduler.Task) 
 		log.Printf("ERROR: failed to mark task %q as running: %v", task.ID, err)
 		return nil
 	}
+
+	// Publish TaskStarted event
+	r.publish(events.TopicTask, events.TaskStartedEvent{
+		ID:        task.ID,
+		Name:      task.Name,
+		AgentRole: task.AgentRole,
+		Timestamp: time.Now(),
+	})
 
 	// Create worktree
 	wtInfo, err := r.config.WorktreeManager.Create(task.ID)
@@ -207,6 +229,15 @@ func (r *ParallelRunner) executeTask(ctx context.Context, task *scheduler.Task) 
 	if err != nil {
 		_ = r.config.WorktreeManager.ForceCleanup(wtInfo)
 		_ = r.dag.MarkFailed(task.ID, err)
+
+		// Publish TaskFailed event
+		r.publish(events.TopicTask, events.TaskFailedEvent{
+			ID:       task.ID,
+			Err:      err,
+			Duration: time.Since(startTime),
+			Timestamp: time.Now(),
+		})
+
 		r.recordResult(TaskResult{
 			TaskID:  task.ID,
 			Success: false,
@@ -218,10 +249,32 @@ func (r *ParallelRunner) executeTask(ctx context.Context, task *scheduler.Task) 
 	// Mark task completed
 	_ = r.dag.MarkCompleted(task.ID, resp.Content)
 
+	// Publish TaskCompleted event
+	r.publish(events.TopicTask, events.TaskCompletedEvent{
+		ID:       task.ID,
+		Result:   resp.Content,
+		Duration: time.Since(startTime),
+		Timestamp: time.Now(),
+	})
+
 	// Merge worktree back to main (serialized to prevent git index.lock conflicts)
 	r.mergeMu.Lock()
 	mergeResult, err := r.config.WorktreeManager.Merge(wtInfo, r.config.MergeStrategy)
 	r.mergeMu.Unlock()
+
+	// Publish TaskMerged event
+	r.publish(events.TopicTask, events.TaskMergedEvent{
+		ID:            task.ID,
+		Merged:        mergeResult != nil && mergeResult.Merged,
+		ConflictFiles: func() []string {
+			if mergeResult != nil {
+				return mergeResult.ConflictFiles
+			}
+			return []string{}
+		}(),
+		Timestamp: time.Now(),
+	})
+
 	if err != nil {
 		log.Printf("ERROR: unexpected error during merge operation for task %q: %v", task.ID, err)
 		_ = r.config.WorktreeManager.ForceCleanup(wtInfo)
@@ -305,4 +358,33 @@ func (r *ParallelRunner) cleanupAllWorktrees() {
 			log.Printf("ERROR: failed to force cleanup worktree %q: %v", wt.TaskID, err)
 		}
 	}
+}
+
+// publishProgress computes current DAG progress and publishes a DAGProgressEvent.
+func (r *ParallelRunner) publishProgress() {
+	tasks := r.dag.Tasks()
+	var total, completed, running, failed, pending int
+	total = len(tasks)
+
+	for _, t := range tasks {
+		switch t.Status {
+		case scheduler.TaskCompleted:
+			completed++
+		case scheduler.TaskRunning:
+			running++
+		case scheduler.TaskFailed:
+			failed++
+		default:
+			pending++
+		}
+	}
+
+	r.publish(events.TopicDAG, events.DAGProgressEvent{
+		Total:     total,
+		Completed: completed,
+		Running:   running,
+		Failed:    failed,
+		Pending:   pending,
+		Timestamp: time.Now(),
+	})
 }

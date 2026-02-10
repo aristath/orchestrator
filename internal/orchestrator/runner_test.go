@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aristath/orchestrator/internal/backend"
+	"github.com/aristath/orchestrator/internal/events"
 	"github.com/aristath/orchestrator/internal/scheduler"
 	"github.com/aristath/orchestrator/internal/worktree"
 )
@@ -768,4 +769,154 @@ func verifyWorktreesCleanedUp(t *testing.T, repoPath string) {
 		t.Errorf("expected 1 worktree (main), got %d", worktreeCount)
 		t.Logf("Worktree list output:\n%s", string(output))
 	}
+}
+
+// TestEventBusIntegration verifies event bus integration with ParallelRunner.
+func TestEventBusIntegration(t *testing.T) {
+	repoPath := setupTestRepo(t)
+
+	// Create DAG with 2 tasks
+	dag := scheduler.NewDAG()
+	taskA := &scheduler.Task{
+		ID:          "task-a",
+		Name:        "Task A",
+		AgentRole:   "coder",
+		Prompt:      "Work A",
+		DependsOn:   []string{},
+		WritesFiles: []string{},
+		Status:      scheduler.TaskPending,
+		FailureMode: scheduler.FailHard,
+	}
+	taskB := &scheduler.Task{
+		ID:          "task-b",
+		Name:        "Task B",
+		AgentRole:   "coder",
+		Prompt:      "Work B",
+		DependsOn:   []string{"task-a"},
+		WritesFiles: []string{},
+		Status:      scheduler.TaskPending,
+		FailureMode: scheduler.FailHard,
+	}
+
+	if err := dag.AddTask(taskA); err != nil {
+		t.Fatalf("failed to add task A: %v", err)
+	}
+	if err := dag.AddTask(taskB); err != nil {
+		t.Fatalf("failed to add task B: %v", err)
+	}
+
+	wtMgr := worktree.NewWorktreeManager(worktree.WorktreeManagerConfig{
+		RepoPath:   repoPath,
+		BaseBranch: "main",
+	})
+
+	// Create event bus and subscribe to events
+	eventBus := events.NewEventBus()
+	defer eventBus.Close()
+
+	taskCh := eventBus.Subscribe(events.TopicTask, 100)
+	dagCh := eventBus.Subscribe(events.TopicDAG, 100)
+
+	// Collect events
+	receivedEvents := make([]events.Event, 0)
+	var eventsMu sync.Mutex
+
+	done := make(chan bool)
+	go func() {
+		for {
+			select {
+			case event, ok := <-taskCh:
+				if !ok {
+					return
+				}
+				eventsMu.Lock()
+				receivedEvents = append(receivedEvents, event)
+				eventsMu.Unlock()
+			case event, ok := <-dagCh:
+				if !ok {
+					return
+				}
+				eventsMu.Lock()
+				receivedEvents = append(receivedEvents, event)
+				eventsMu.Unlock()
+			case <-done:
+				return
+			}
+		}
+	}()
+	defer func() {
+		done <- true
+	}()
+
+	factory := newMockBackendFactory()
+	factory.onSend = func(ctx context.Context, msg backend.Message, workDir string) (backend.Response, error) {
+		return backend.Response{Content: "done", SessionID: "mock"}, nil
+	}
+
+	lockMgr := scheduler.NewResourceLockManager()
+	cfg := ParallelRunnerConfig{
+		WorktreeManager: wtMgr,
+		BackendFactory:  factory.factory,
+		EventBus:        eventBus,
+	}
+
+	runner := NewParallelRunner(cfg, dag, lockMgr)
+
+	ctx := context.Background()
+	results, err := runner.Run(ctx)
+
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if len(results) != 2 {
+		t.Errorf("expected 2 results, got %d", len(results))
+	}
+
+	// Give time for events to be collected
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify events
+	eventsMu.Lock()
+	defer eventsMu.Unlock()
+
+	taskStartedCount := 0
+	taskCompletedCount := 0
+	dagProgressCount := 0
+
+	for _, event := range receivedEvents {
+		switch event.EventType() {
+		case events.EventTypeTaskStarted:
+			taskStartedCount++
+			// Verify timestamp is non-zero
+			if e, ok := event.(events.TaskStartedEvent); ok && e.Timestamp.IsZero() {
+				t.Error("TaskStartedEvent has zero timestamp")
+			}
+		case events.EventTypeTaskCompleted:
+			taskCompletedCount++
+			// Verify timestamp is non-zero
+			if e, ok := event.(events.TaskCompletedEvent); ok && e.Timestamp.IsZero() {
+				t.Error("TaskCompletedEvent has zero timestamp")
+			}
+		case events.EventTypeDAGProgress:
+			dagProgressCount++
+			// Verify timestamp is non-zero
+			if e, ok := event.(events.DAGProgressEvent); ok && e.Timestamp.IsZero() {
+				t.Error("DAGProgressEvent has zero timestamp")
+			}
+		}
+	}
+
+	if taskStartedCount < 2 {
+		t.Errorf("expected at least 2 TaskStarted events, got %d", taskStartedCount)
+	}
+	if taskCompletedCount < 2 {
+		t.Errorf("expected at least 2 TaskCompleted events, got %d", taskCompletedCount)
+	}
+	if dagProgressCount < 1 {
+		t.Errorf("expected at least 1 DAGProgress event, got %d", dagProgressCount)
+	}
+
+	t.Logf("Received events: %d TaskStarted, %d TaskCompleted, %d DAGProgress",
+		taskStartedCount, taskCompletedCount, dagProgressCount)
 }
