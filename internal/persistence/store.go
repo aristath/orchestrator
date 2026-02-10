@@ -60,8 +60,8 @@ func NewSQLiteStore(ctx context.Context, dbPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Single-writer safety
-	db.SetMaxOpenConns(1)
+	// Allow 2 connections: one for primary queries, one for subqueries (prevents deadlock in ListTasks)
+	db.SetMaxOpenConns(2)
 
 	store := &SQLiteStore{db: db}
 
@@ -75,15 +75,17 @@ func NewSQLiteStore(ctx context.Context, dbPath string) (*SQLiteStore, error) {
 }
 
 // NewMemoryStore creates an in-memory SQLite store for testing.
-// Does not use WAL mode (not needed for in-memory databases).
+// Uses a shared cache so multiple connections see the same database.
 func NewMemoryStore(ctx context.Context) (*SQLiteStore, error) {
-	connStr := ":memory:?_foreign_keys=ON"
+	// Use file::memory:?cache=shared to allow multiple connections to the same in-memory DB
+	connStr := "file::memory:?mode=memory&cache=shared&_foreign_keys=ON"
 	db, err := sql.Open("sqlite", connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open memory database: %w", err)
 	}
 
-	db.SetMaxOpenConns(1)
+	// Allow 2 connections for subquery parallelism
+	db.SetMaxOpenConns(2)
 
 	store := &SQLiteStore{db: db}
 
