@@ -19,17 +19,15 @@ type Backend interface {
 
 // New creates a new backend based on the provided configuration.
 // This factory function switches on cfg.Type and returns the appropriate adapter.
-func New(cfg Config) (Backend, error) {
+func New(cfg Config, pm *ProcessManager) (Backend, error) {
 	switch cfg.Type {
 	case "claude":
 		// TODO: Implement Claude Code adapter in plan 01-02
 		return nil, fmt.Errorf("unknown backend type: %s", cfg.Type)
 	case "codex":
-		// TODO: Implement Codex adapter in plan 01-03
-		return nil, fmt.Errorf("unknown backend type: %s", cfg.Type)
+		return NewCodexAdapter(cfg, pm)
 	case "goose":
-		// TODO: Implement Goose adapter in plan 01-04
-		return nil, fmt.Errorf("unknown backend type: %s", cfg.Type)
+		return NewGooseAdapter(cfg, pm)
 	default:
 		return nil, fmt.Errorf("unknown backend type: %s", cfg.Type)
 	}
