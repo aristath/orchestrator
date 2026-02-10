@@ -64,6 +64,14 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **RESIL-03**: One agent's failure does not cascade to abort unrelated parallel agents
 - [ ] **RESIL-04**: Graceful shutdown on Ctrl+C — all subprocess trees are killed, partial work is checkpointed
 
+### Configuration (CONF)
+
+- [ ] **CONF-01**: Global config file (`~/.orchestrator/config.json`) defines default providers, agents, and settings
+- [ ] **CONF-02**: Per-project config file (`.orchestrator/config.json` in project root) overrides global settings
+- [ ] **CONF-03**: Per-project config merges with global — project can add/override agents and providers without redefining everything
+- [ ] **CONF-04**: TUI settings panel for editing global config (providers, agents, defaults)
+- [ ] **CONF-05**: TUI settings panel for editing per-project config (project-specific agents, provider overrides)
+
 ### Workflows (WORK)
 
 - [ ] **WORK-01**: Predefined workflows are configurable (e.g., code -> review -> test pipeline)
@@ -129,6 +137,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AGNT-04 | Phase 2 | Pending |
 | AGNT-05 | Phase 2 | Pending |
 | AGNT-06 | Phase 2 | Pending |
+| CONF-01 | Phase 2 | Pending |
+| CONF-02 | Phase 2 | Pending |
+| CONF-03 | Phase 2 | Pending |
 | SCHED-01 | Phase 2 | Pending |
 | SCHED-02 | Phase 2 | Pending |
 | SCHED-03 | Phase 2 | Pending |
@@ -147,6 +158,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | TUI-03 | Phase 4 | Pending |
 | TUI-04 | Phase 4 | Pending |
 | TUI-05 | Phase 4 | Pending |
+| CONF-04 | Phase 4 | Pending |
+| CONF-05 | Phase 4 | Pending |
 | STATE-01 | Phase 5 | Pending |
 | STATE-02 | Phase 5 | Pending |
 | STATE-03 | Phase 5 | Pending |
@@ -157,8 +170,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RESIL-04 | Phase 6 | Pending |
 
 **Coverage:**
-- v1 requirements: 39 total
-- Mapped to phases: 39
+- v1 requirements: 44 total
+- Mapped to phases: 44
 - Unmapped: 0
 
 ---

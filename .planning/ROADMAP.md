@@ -43,7 +43,7 @@ Plans:
 ### Phase 2: Agent Definitions and DAG Scheduler
 **Goal**: Users can define agent roles via YAML config, and the orchestrator can decompose a plan into a validated DAG of tasks with dependency resolution, resource locking, and failure classification
 **Depends on**: Phase 1
-**Requirements**: AGNT-01, AGNT-02, AGNT-03, AGNT-04, AGNT-05, AGNT-06, SCHED-01, SCHED-02, SCHED-03, SCHED-04, SCHED-05, SCHED-06, WORK-01, WORK-02, WORK-03
+**Requirements**: AGNT-01, AGNT-02, AGNT-03, AGNT-04, AGNT-05, AGNT-06, CONF-01, CONF-02, CONF-03, SCHED-01, SCHED-02, SCHED-03, SCHED-04, SCHED-05, SCHED-06, WORK-01, WORK-02, WORK-03
 **Key Risks**: DAG cycle detection must be bulletproof — a cycle causes infinite blocking. File-level resource locking adds complexity but is essential before parallel execution. Workflow config (code->review->test) must compose cleanly with DAG scheduling.
 **Success Criteria** (what must be TRUE):
   1. Providers are defined in JSON config (CLI command, args, transport config) separately from agents
@@ -53,7 +53,8 @@ Plans:
   4. DAG rejects circular dependencies at construction time with a clear error message identifying the cycle
   5. Tasks that have no unresolved dependencies are marked eligible for execution, and completing a task triggers downstream dependency resolution
   6. File-level resource locks prevent scheduling two tasks that write the same file concurrently
-  7. Predefined workflows (e.g., code -> review -> test) can be configured and the orchestrator spawns follow-up agents per workflow config
+  7. Global config (`~/.orchestrator/config.json`) and per-project config (`.orchestrator/config.json`) are loaded and merged — project overrides global
+  8. Predefined workflows (e.g., code -> review -> test) can be configured and the orchestrator spawns follow-up agents per workflow config
 **Plans**: TBD
 
 Plans:
@@ -80,7 +81,7 @@ Plans:
 ### Phase 4: Event Bus and TUI Integration
 **Goal**: User can monitor all running agents in a split-pane Bubble Tea TUI with real-time output, navigate between panes, and see overall DAG progress at a glance
 **Depends on**: Phase 3
-**Requirements**: TUI-01, TUI-02, TUI-03, TUI-04, TUI-05
+**Requirements**: TUI-01, TUI-02, TUI-03, TUI-04, TUI-05, CONF-04, CONF-05
 **Key Risks**: Bubble Tea v2 split-pane layouts are not extensively documented — may need prototyping. TUI state desync between actual agent state and displayed state. High-frequency agent output overwhelming the TUI render loop.
 **Research Flags**: Bubble Tea v2 multi-pane layout patterns need prototyping. Crush's TUI can serve as design reference.
 **Success Criteria** (what must be TRUE):
@@ -88,6 +89,7 @@ Plans:
   2. User can switch focus between agent panes using vim-style keybindings (hjkl or similar)
   3. Each agent pane shows a status indicator (working, paused, failed, complete) visible without switching focus to that pane
   4. An orchestrator pane displays overall DAG progress — which tasks are complete, running, and pending
+  5. TUI has a settings panel for editing global config (providers, agents, defaults) and per-project config (overrides)
 **Plans**: TBD
 
 Plans:
