@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-02-10)
 ## Current Position
 
 Phase: 2 of 6 (Agent Definitions and DAG Scheduler)
-Plan: 2 of 5 in current phase
+Plan: 4 of 5 in current phase
 Status: In progress
-Last activity: 2026-02-10 -- Completed 02-02-PLAN.md (DAG scheduler core with task types and cycle detection)
+Last activity: 2026-02-10 -- Completed 02-04-PLAN.md (Workflow engine for follow-up task spawning)
 
-Progress: [█████░░░░░] 50%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 7
-- Average duration: 164 seconds
-- Total execution time: 0.32 hours
+- Total plans completed: 8
+- Average duration: 156 seconds
+- Total execution time: 0.35 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01 | 5 | 910s | 182s |
-| 02 | 2 | 259s | 130s |
+| 02 | 3 | 405s | 135s |
 
 **Recent Trend:**
-- Last 5 plans: 100s, 238s, 334s, 97s, 162s (avg: 186s)
+- Last 5 plans: 238s, 334s, 97s, 162s, 146s (avg: 195s)
 - Trend: Phase 2 maintaining efficient pace
 
 *Updated after each plan completion*
@@ -43,8 +43,9 @@ Progress: [█████░░░░░] 50%
 | Phase 01 P04 | 100s | 2 tasks | 2 files |
 | Phase 01 P03 | 238s | 2 tasks | 2 files |
 | Phase 01 P05 | 334s | 2 tasks | 3 files |
-| Phase 02 P01 | 97 | 2 tasks | 4 files |
-| Phase 02 P02 | 162 | 2 tasks | 3 files |
+| Phase 02 P01 | 97s | 2 tasks | 4 files |
+| Phase 02 P02 | 162s | 2 tasks | 3 files |
+| Phase 02 P04 | 146s | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,10 @@ Recent decisions affecting current work:
 - [02-02]: FailureMode controls dependency resolution: FailHard blocks, FailSoft allows, FailSkip treats as success
 - [02-02]: Validate all dependencies exist before topological sort
 - [02-02]: Track disconnected components by verifying sorted result contains all tasks
+- [02-04]: Follow-up task ID format: {originalID}-{agentRole} for clear lineage
+- [02-04]: Review tasks use FailSoft (code can proceed), test tasks use FailHard (blocks on failure)
+- [02-04]: Simple prompt template for follow-ups: 'Review the output of task X: Y' (Phase 3+ will refine)
+- [02-04]: Multiple workflows can share same agent roles - all workflows spawn follow-ups
 
 ### Pending Todos
 
@@ -88,14 +93,15 @@ None yet.
 
 **Phase 2 In Progress - No Blockers**
 
-Phase 1 complete. Phase 2 Plans 01-02 complete:
+Phase 1 complete. Phase 2 Plans 01-02-04 complete:
 - Config type system implemented with three-tier merge (defaults -> global -> project)
 - DAG scheduler with task types, topological sort, and cycle detection
 - Dependency resolution respects FailHard/FailSoft/FailSkip failure modes
-- All tests passing (8 config tests, 23 DAG tests with -race flag)
+- WorkflowManager spawns follow-up tasks (code -> review -> test) with DAG validation
+- All tests passing (8 config tests, 23 DAG tests, 8 workflow tests with -race flag)
 
 ## Session Continuity
 
 Last session: 2026-02-10
-Stopped at: Completed 02-02-PLAN.md (DAG scheduler core)
+Stopped at: Completed 02-04-PLAN.md (Workflow engine for follow-up task spawning)
 Resume file: None
