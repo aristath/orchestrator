@@ -34,6 +34,8 @@ Progress: [████░░░░░░] 40%
 - Trend: Steady execution
 
 *Updated after each plan completion*
+| Phase 01 P02 | 231 | 2 tasks | 4 files |
+| Phase 01 P03 | 238 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -52,6 +54,8 @@ Recent decisions affecting current work:
 - [01-04]: Goose session names use "orchestrator-{random-hex}" format -- human-readable and unique
 - [01-04]: Pass --provider and --model directly to Goose CLI -- simple local LLM support via passthrough
 - [01-04]: Flexible JSON parsing with ndjson and plain text fallbacks -- robust handling of varied Goose output
+- [Phase 01-02]: Generate UUIDs without external dependencies using crypto/rand for self-contained session management
+- [Phase 01-02]: Track subprocesses via optional ProcessManager in executeCommand for graceful shutdown
 
 ### Pending Todos
 
