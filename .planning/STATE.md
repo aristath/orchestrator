@@ -5,33 +5,34 @@
 See: .planning/PROJECT.md (updated 2026-02-10)
 
 **Core value:** A single developer plans a task with an AI, then that AI autonomously decomposes and executes the plan across multiple specialized agents running in parallel -- coordinating them, answering their questions, and ensuring quality.
-**Current focus:** Phase 1 - Subprocess Management and Backend Abstraction
+**Current focus:** Phase 2 - Agent Definitions and DAG Scheduler
 
 ## Current Position
 
-Phase: 1 of 6 (Subprocess Management and Backend Abstraction)
-Plan: 5 of 5 in current phase
-Status: Phase complete
-Last activity: 2026-02-10 -- Completed 01-05-PLAN.md (Subprocess infrastructure validation with stress tests)
+Phase: 2 of 6 (Agent Definitions and DAG Scheduler)
+Plan: 1 of 5 in current phase
+Status: In progress
+Last activity: 2026-02-10 -- Completed 02-01-PLAN.md (Configuration system for providers, agents, and workflows)
 
 Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
-- Average duration: 182 seconds
-- Total execution time: 0.25 hours
+- Total plans completed: 6
+- Average duration: 167 seconds
+- Total execution time: 0.28 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01 | 5 | 910s | 182s |
+| 02 | 1 | 97s | 97s |
 
 **Recent Trend:**
-- Last 5 plans: 96s, 142s, 100s, 238s, 334s (avg: 182s)
-- Trend: Increasing complexity (testing phase requires more time)
+- Last 5 plans: 142s, 100s, 238s, 334s, 97s (avg: 182s)
+- Trend: Phase 2 starting efficiently
 
 *Updated after each plan completion*
 
@@ -42,6 +43,7 @@ Progress: [█████░░░░░] 50%
 | Phase 01 P04 | 100s | 2 tasks | 2 files |
 | Phase 01 P03 | 238s | 2 tasks | 2 files |
 | Phase 01 P05 | 334s | 2 tasks | 3 files |
+| Phase 02 P01 | 97 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -68,6 +70,10 @@ Recent decisions affecting current work:
 - [01-05]: Use mock CLI script for subprocess testing -- enables tests without actual CLI installations
 - [01-05]: Test with 256KB output for deadlock prevention -- proves concurrent pipe reading works under stress
 - [01-05]: Use 15 sequential invocations for zombie test -- exceeds 10+ requirement, validates cleanup at scale
+- [02-01]: Map-level merge for config enables independent provider/agent/workflow overrides
+- [02-01]: Project config highest precedence (defaults -> global -> project) matches user expectations
+- [02-01]: Missing config files not errors enables zero-config usage with graceful degradation
+- [02-01]: Zero external config libraries using stdlib encoding/json for lean binary
 
 ### Pending Todos
 
@@ -75,17 +81,16 @@ None yet.
 
 ### Blockers/Concerns
 
-**Phase 1 Complete - No Blockers**
+**Phase 2 In Progress - No Blockers**
 
-All Phase 1 success criteria validated:
-- Backend interface implemented with all three adapters (Claude, Codex, Goose)
-- No pipe deadlocks on large output (256KB test passed)
-- Process group signal propagation kills subprocess trees
-- Zero zombies after 15+ sequential invocations
-- Factory creates all backend types correctly
+Phase 1 complete. Phase 2 Plan 01 complete:
+- Config type system implemented with OrchestratorConfig, ProviderConfig, AgentConfig, WorkflowConfig
+- Config loader with three-tier merge (defaults -> global -> project) working
+- Default config includes 3 providers, 4 agents, 1 workflow
+- All tests passing (8 test cases covering merge, errors, missing files)
 
 ## Session Continuity
 
 Last session: 2026-02-10
-Stopped at: Completed 01-05-PLAN.md (Phase 1 complete)
+Stopped at: Completed 02-01-PLAN.md (Configuration system)
 Resume file: None
