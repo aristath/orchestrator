@@ -7,18 +7,12 @@
 
 Requirements for initial release. Each maps to roadmap phases.
 
-### Fork Strategy (FORK)
-
-- [ ] **FORK-01**: Crush source code is forked with a clean extension architecture that wraps rather than modifies core files
-- [ ] **FORK-02**: Extension points are documented — interfaces for injecting orchestrator behavior without touching Crush internals
-- [ ] **FORK-03**: Fork can rebase cleanly against upstream Crush (weekly rebase target)
-
 ### Backend Abstraction (BACK)
 
-- [ ] **BACK-01**: A unified `Backend` interface abstracts all LLM communication (in-process, subprocess, network)
-- [ ] **BACK-02**: Fantasy adapter wraps Crush's existing `charm.land/fantasy` LLM calls for in-process backends
-- [ ] **BACK-03**: Subprocess adapter executes Claude Code CLI with `--session-id`/`--resume` for multi-turn conversations
-- [ ] **BACK-04**: Subprocess adapter executes Codex CLI with `resume <THREAD_ID>` for multi-turn conversations
+- [ ] **BACK-01**: A unified `Backend` interface abstracts all subprocess communication with agent CLIs
+- [ ] **BACK-02**: Claude Code adapter executes `claude` CLI with `--session-id`/`--resume` for multi-turn, `--output-format json` for structured output, `--system-prompt` for role customization
+- [ ] **BACK-03**: Codex adapter executes `codex` CLI with `resume <THREAD_ID>` for multi-turn, `--json` for structured output
+- [ ] **BACK-04**: Goose adapter executes `goose run` with `--session-id`/`--resume` for multi-turn, `--output-format json` for structured output, `--system` for role customization, `--model`/`--provider` for model selection
 - [ ] **BACK-05**: Subprocess pipes (stdout/stderr) are read concurrently via goroutines before `cmd.Wait()` to prevent deadlocks
 - [ ] **BACK-06**: Process groups (`syscall.SysProcAttr{Setpgid: true}`) ensure signal propagation kills entire subprocess trees
 - [ ] **BACK-07**: Zombie process prevention — `cmd.Wait()` is always called, orphan detection runs on shutdown
@@ -60,7 +54,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **STATE-01**: Task state (DAG, status, results) persists to SQLite — survives crashes and restarts
 - [ ] **STATE-02**: Conversation history per agent is stored and recoverable
 - [ ] **STATE-03**: Completed tasks are checkpointed — resume picks up from last checkpoint, not from scratch
-- [ ] **STATE-04**: Multi-turn session IDs (Claude Code, Codex) are persisted for conversation continuity across restarts
+- [ ] **STATE-04**: Multi-turn session IDs (Claude Code, Codex, Goose) are persisted for conversation continuity across restarts
 
 ### Resilience (RESIL)
 
@@ -73,17 +67,16 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [ ] **WORK-01**: Predefined workflows are configurable (e.g., code -> review -> test pipeline)
 - [ ] **WORK-02**: After each task completes, orchestrator can spawn follow-up agents (reviewer, tester) per workflow config
-- [ ] **WORK-03**: Orchestrator itself can run on any backend (Claude Code, Codex, or local LLM — configurable)
+- [ ] **WORK-03**: Orchestrator itself can run on any backend (Claude Code, Codex, or Goose — configurable)
 
 ## v2 Requirements
 
 Deferred to future release. Tracked but not in current roadmap.
 
-### Local LLM Backend
+### Additional Backends
 
-- **LOCAL-01**: Network backend adapter for OpenAI-compatible API (Ollama, LM Studio, llama.cpp)
-- **LOCAL-02**: Local LLM agents have full tool access (file read/write, shell, grep, glob) via built-in agentic tool loop
-- **LOCAL-03**: Orchestrator manages conversation history directly for local LLM agents (no external session management)
+- **ADDBACK-01**: Support additional agent CLIs (OpenCode, Cline, Continue, etc.) via new subprocess adapters
+- **ADDBACK-02**: Direct OpenAI-compatible API backend for local LLMs without requiring Goose
 
 ### Advanced Features
 
@@ -105,7 +98,8 @@ Explicitly excluded. Documented to prevent scope creep.
 | Feature | Reason |
 |---------|--------|
 | Mobile or web UI | Terminal TUI only — this is a local developer tool |
-| New LLM provider abstraction | Reuse Crush's `charm.land/fantasy` — already supports all needed providers |
+| Custom LLM provider abstraction | Agent CLIs handle LLM communication — orchestrator delegates |
+| Custom tool systems | Agent CLIs have tools built in (file edit, shell, grep, etc.) |
 | Cloud hosting / SaaS | Local tool, not a service |
 | Real-time multi-user collaboration | Single developer tool |
 | Model training / fine-tuning | Out of domain — use existing models |
@@ -121,9 +115,6 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| FORK-01 | Phase 0 | Pending |
-| FORK-02 | Phase 0 | Pending |
-| FORK-03 | Phase 0 | Pending |
 | BACK-01 | Phase 1 | Pending |
 | BACK-02 | Phase 1 | Pending |
 | BACK-03 | Phase 1 | Pending |
@@ -164,11 +155,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RESIL-04 | Phase 6 | Pending |
 
 **Coverage:**
-- v1 requirements: 41 total
-- Mapped to phases: 41
+- v1 requirements: 38 total
+- Mapped to phases: 38
 - Unmapped: 0
-- v2 requirements (Phase 7 stretch): LOCAL-01, LOCAL-02, LOCAL-03
 
 ---
 *Requirements defined: 2026-02-10*
-*Last updated: 2026-02-10 after roadmap creation*
+*Last updated: 2026-02-10 after architecture pivot to standalone (no Crush fork)*
