@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-10)
 ## Current Position
 
 Phase: 6 of 6 (Resilience and Production Hardening)
-Plan: 1 of 2 in current phase
-Status: Phase 6 in progress
-Last activity: 2026-02-10 -- Completed 06-02-PLAN.md (graceful shutdown with signal handling)
+Plan: 2 of 2 in current phase (PHASE COMPLETE)
+Status: Phase 6 complete - All phases finished
+Last activity: 2026-02-10 -- Completed 06-01-PLAN.md (retry with exponential backoff, circuit breaker, failure isolation)
 
-Progress: [█████████████░] 89%
+Progress: [██████████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 18
-- Average duration: 240 seconds
-- Total execution time: 1.20 hours
+- Total plans completed: 19
+- Average duration: 244 seconds
+- Total execution time: 1.29 hours
 
 **By Phase:**
 
@@ -32,11 +32,11 @@ Progress: [█████████████░] 89%
 | 03 | 3 | 1706s | 569s |
 | 04 | 3 | 659s | 220s |
 | 05 | 3 | 739s | 246s |
-| 06 | 1 | 70s | 70s |
+| 06 | 2 | 360s | 180s |
 
 **Recent Trend:**
-- Last 5 plans: 351s, 159s, 229s, 70s (avg: 202s)
-- Trend: Phase 06 P02 at 70s - fast execution for focused signal handling task
+- Last 5 plans: 159s, 229s, 70s, 290s (avg: 187s)
+- Trend: Phase 06 complete with balanced execution (P02: 70s focused task, P01: 290s comprehensive resilience)
 
 *Updated after each plan completion*
 
@@ -60,6 +60,7 @@ Progress: [█████████████░] 89%
 | Phase 05 P02 | 159s | 2 tasks | 4 files |
 | Phase 05 P03 | 229 | 2 tasks | 2 files |
 | Phase 06 P02 | 70 | 2 tasks | 2 files |
+| Phase 06 P01 | 290s | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -136,8 +137,14 @@ Recent decisions affecting current work:
 - [05-03]: Checkpoint errors logged but don't halt execution (data loss better than total failure)
 - [05-03]: Persist full DAG at Run start for reliable resume capability
 - [05-03]: Sessions loaded in Resume but not yet used in createBackend (future multi-turn support)
-- [Phase 06]: Use signal.NotifyContext for clean signal handling
-- [Phase 06]: Call stop() after ctx.Done() to enable double Ctrl+C force exit
+- [06-02]: Use signal.NotifyContext for clean signal handling
+- [06-02]: Call stop() after ctx.Done() to enable double Ctrl+C force exit
+- [06-01]: Use cenkalti/backoff/v4 for retry logic with exponential backoff and jitter
+- [06-01]: Use sony/gobreaker for circuit breaker pattern implementation
+- [06-01]: Per-backend-type circuit breakers (not per-task or global) for right failure granularity
+- [06-01]: Switch from errgroup.WithContext to plain errgroup.Group for failure isolation
+- [06-01]: Circuit trips after 5 consecutive failures, stays open for 30s before testing recovery
+- [06-01]: User cancellation (context.Canceled) doesn't count as backend failure
 
 ### Pending Todos
 
@@ -145,9 +152,17 @@ None yet.
 
 ### Blockers/Concerns
 
-**Phase 6 In Progress - No Blockers**
+**Project Complete - No Blockers**
 
-Phase 6 accomplishments (1 of 2 plans complete):
+Phase 6 accomplishments (2 of 2 plans complete):
+- Plan 01: Resilience and error recovery
+  - Exponential backoff retry with cenkalti/backoff/v4
+  - Per-backend-type circuit breakers with sony/gobreaker
+  - Circuit trips after 5 consecutive failures, 30s recovery window
+  - Plain errgroup.Group for failure isolation (not WithContext)
+  - Context cancellation stops retries immediately
+  - User cancellation doesn't count as backend failure
+  - All 25 tests passing with -race flag (20 existing + 5 resilience + 1 isolation)
 - Plan 02: Graceful shutdown with signal handling
   - Signal-aware context with SIGINT/SIGTERM handling
   - ProcessManager integration for subprocess cleanup
@@ -156,10 +171,10 @@ Phase 6 accomplishments (1 of 2 plans complete):
   - All 3 integration tests passing with -race flag
   - Clean production-ready entry point
 
-**Next: Phase 6 Plan 01** - Retry logic and error recovery
+**All 6 phases complete. Project ready for production use.**
 
 ## Session Continuity
 
 Last session: 2026-02-10
-Stopped at: Completed 06-02-PLAN.md
+Stopped at: Completed 06-01-PLAN.md - All phases complete
 Resume file: None
