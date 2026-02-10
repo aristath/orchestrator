@@ -54,7 +54,17 @@ func (m *WorktreeManager) Create(taskID string) (*WorktreeInfo, error) {
 
 // Merge merges the worktree branch back to the base branch
 func (m *WorktreeManager) Merge(info *WorktreeInfo, strategy MergeStrategy) (*MergeResult, error) {
-	// First detect conflicts using merge-tree (dry-run merge)
+	// First, checkout base branch to ensure we're merging into the right place
+	checkoutCmd := exec.Command("git", "checkout", m.config.BaseBranch)
+	checkoutCmd.Dir = m.config.RepoPath
+	if checkoutOutput, err := checkoutCmd.CombinedOutput(); err != nil {
+		return &MergeResult{
+			Merged: false,
+			Error:  fmt.Errorf("failed to checkout base branch: %w (output: %s)", err, string(checkoutOutput)),
+		}, nil
+	}
+
+	// Detect conflicts using merge-tree (dry-run merge)
 	detectCmd := exec.Command("git", "merge-tree", "--write-tree", m.config.BaseBranch, info.Branch)
 	detectCmd.Dir = m.config.RepoPath
 	detectOutput, err := detectCmd.CombinedOutput()
@@ -69,8 +79,27 @@ func (m *WorktreeManager) Merge(info *WorktreeInfo, strategy MergeStrategy) (*Me
 		return result, nil
 	}
 
+	// Check if output contains conflict markers (git merge-tree may exit 0 but still have conflicts)
+	outputStr := string(detectOutput)
+	if strings.Contains(outputStr, "CONFLICT") {
+		result := &MergeResult{
+			Merged: false,
+			Error:  fmt.Errorf("merge conflict detected: %s", outputStr),
+		}
+		result.ConflictFiles = parseConflictFiles(outputStr)
+		return result, nil
+	}
+
 	// No conflicts, perform actual merge
-	mergeCmd := exec.Command("git", "merge", "--no-ff", "-s", strategy.String(), info.Branch)
+	// Map strategy to git merge strategy names
+	strategyArg := "recursive" // default
+	if strategy == MergeOurs {
+		strategyArg = "ours"
+	} else if strategy == MergeTheirs {
+		strategyArg = "theirs"
+	}
+
+	mergeCmd := exec.Command("git", "merge", "--no-ff", "-s", strategyArg, info.Branch)
 	mergeCmd.Dir = m.config.RepoPath
 	mergeOutput, err := mergeCmd.CombinedOutput()
 	if err != nil {
