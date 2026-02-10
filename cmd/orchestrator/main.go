@@ -3,21 +3,39 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/aristath/orchestrator/internal/config"
 	"github.com/aristath/orchestrator/internal/events"
 	"github.com/aristath/orchestrator/internal/tui"
 )
 
 func main() {
+	// Load configuration
+	cfg, err := config.LoadDefault()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Determine config paths
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error getting home directory: %v\n", err)
+		os.Exit(1)
+	}
+	globalPath := filepath.Join(homeDir, ".orchestrator", "config.json")
+	projectPath := filepath.Join(".orchestrator", "config.json")
+
 	// Create event bus
 	bus := events.NewEventBus()
 	defer bus.Close()
 
 	// Create TUI model
-	model := tui.New(bus)
+	model := tui.New(bus, cfg, globalPath, projectPath)
 
 	// Start Bubble Tea program
 	p := tea.NewProgram(model, tea.WithAltScreen())

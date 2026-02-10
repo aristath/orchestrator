@@ -4,6 +4,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/aristath/orchestrator/internal/config"
 	"github.com/aristath/orchestrator/internal/events"
 )
 
@@ -18,23 +19,33 @@ const (
 
 // Model is the root Bubble Tea model for the TUI.
 type Model struct {
-	agentPane   AgentPaneModel
-	dagPane     DAGPaneModel
-	focusedPane PaneID
-	eventSub    <-chan events.Event
-	width       int
-	height      int
-	quitting    bool
+	agentPane        AgentPaneModel
+	dagPane          DAGPaneModel
+	settingsPane     SettingsPaneModel
+	focusedPane      PaneID
+	eventSub         <-chan events.Event
+	width            int
+	height           int
+	quitting         bool
+	showSettings     bool
+	config           *config.OrchestratorConfig
+	globalConfigPath string
+	projectConfigPath string
 }
 
 // New creates a new TUI model.
 // It subscribes to all events from the event bus using SubscribeAll.
-func New(eventBus *events.EventBus) Model {
+func New(eventBus *events.EventBus, cfg *config.OrchestratorConfig, globalPath, projectPath string) Model {
 	return Model{
-		agentPane:   NewAgentPaneModel(),
-		dagPane:     NewDAGPaneModel(),
-		focusedPane: PaneAgentList,
-		eventSub:    eventBus.SubscribeAll(256),
+		agentPane:         NewAgentPaneModel(),
+		dagPane:           NewDAGPaneModel(),
+		settingsPane:      NewSettingsPaneModel(cfg, globalPath, projectPath),
+		focusedPane:       PaneAgentList,
+		eventSub:          eventBus.SubscribeAll(256),
+		showSettings:      false,
+		config:            cfg,
+		globalConfigPath:  globalPath,
+		projectConfigPath: projectPath,
 	}
 }
 
@@ -60,10 +71,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// If settings panel is open, route all keys to it (modal behavior)
+		if m.showSettings {
+			switch msg.String() {
+			case "s", "esc":
+				// Toggle settings off
+				m.showSettings = false
+				m.settingsPane.SetVisible(false)
+			default:
+				// Route to settings pane
+				var cmd tea.Cmd
+				m.settingsPane, cmd = m.settingsPane.Update(msg)
+				cmds = append(cmds, cmd)
+
+				// Check if settings pane closed itself (after save)
+				if !m.settingsPane.IsVisible() {
+					m.showSettings = false
+				}
+			}
+			return m, tea.Batch(cmds...)
+		}
+
+		// Normal mode (settings not open)
 		switch msg.String() {
 		case KeyQuit, KeyCtrlC:
 			m.quitting = true
 			return m, tea.Quit
+
+		case "s":
+			// Toggle settings on
+			m.showSettings = true
+			m.settingsPane.SetVisible(true)
+			var cmd tea.Cmd
+			cmd = m.settingsPane.Init()
+			cmds = append(cmds, cmd)
 
 		case KeyTab:
 			// Cycle forward
@@ -105,6 +146,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.computeLayout()
+		m.settingsPane.SetSize(msg.Width, msg.Height)
 
 	case events.TaskStartedEvent, events.TaskOutputEvent, events.TaskCompletedEvent, events.TaskFailedEvent:
 		// Forward task events to agent pane
@@ -138,6 +180,13 @@ func (m Model) View() string {
 
 	if m.width == 0 || m.height == 0 {
 		return "Initializing..."
+	}
+
+	// If settings panel is visible, render it as overlay
+	if m.showSettings {
+		// Render settings pane centered over the normal view
+		// For simplicity, render full-screen settings view
+		return m.settingsPane.View()
 	}
 
 	// Compute layout dimensions
