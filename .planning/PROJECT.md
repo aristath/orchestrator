@@ -12,43 +12,53 @@ The orchestrator enables a single developer to plan a task with an AI, then have
 
 ### Validated
 
-<!-- Shipped and confirmed valuable. -->
-
-(None yet — ship to validate)
+- ✓ Providers defined in JSON config — transport layer (CLI command, args, base config) — v1.0
+- ✓ Agents defined in JSON config — role layer (provider, model, system prompt, tools per role) — v1.0
+- ✓ Orchestrator agent holds full plan context and manages task execution — v1.0
+- ✓ Orchestrator decomposes a plan into a DAG of sub-tasks with dependencies — v1.0
+- ✓ Orchestrator spawns satellite agents for each sub-task — v1.0
+- ✓ Orchestrator routes tasks to the appropriate backend (Claude Code, Codex, or Goose) — v1.0
+- ✓ Orchestrator selects the best agent for each task based on role config — v1.0
+- ✓ Satellite agents using Claude Code communicate via CLI with session management — v1.0
+- ✓ Satellite agents using Codex communicate via CLI with thread management — v1.0
+- ✓ Satellite agents using Goose communicate via CLI with session management — v1.0
+- ✓ Goose backend supports local LLMs (Ollama, LM Studio, llama.cpp) — v1.0
+- ✓ Parallel execution of independent tasks with bounded concurrency — v1.0
+- ✓ Orchestrator answers satellite agent questions via non-blocking Q&A channel — v1.0
+- ✓ Follow-up agents (reviewer, tester) spawned per workflow config — v1.0
+- ✓ TUI displays split panes showing parallel agent activity simultaneously — v1.0
+- ✓ Predefined workflows configurable (code -> review -> test pipeline) — v1.0
+- ✓ Orchestrator is a configurable agent definition — provider and model are swappable — v1.0
+- ✓ All multi-turn conversations maintain full context across turns — v1.0
+- ✓ Task state persists to SQLite — survives crashes and restarts — v1.0
+- ✓ Conversation history per agent stored and recoverable — v1.0
+- ✓ Checkpoint/resume from last completed task — v1.0
+- ✓ Session IDs persisted for conversation continuity — v1.0
+- ✓ Transient failures retried with exponential backoff — v1.0
+- ✓ Circuit breakers prevent repeated calls to failing backends — v1.0
+- ✓ One agent's failure does not cascade to unrelated agents — v1.0
+- ✓ Graceful shutdown on Ctrl+C with subprocess cleanup — v1.0
 
 ### Active
 
-<!-- Current scope. Building toward these. -->
-
-- [ ] Providers defined in JSON config — transport layer (CLI command, args, base config)
-- [ ] Agents defined in JSON config — role layer (provider, model, system prompt, tools per role)
-- [ ] Orchestrator agent holds full plan context and manages task execution
-- [ ] Orchestrator decomposes a plan into a DAG of sub-tasks with dependencies
-- [ ] Orchestrator spawns satellite agents for each sub-task
-- [ ] Orchestrator routes tasks to the appropriate backend (Claude Code, Codex, or Goose)
-- [ ] Orchestrator selects the best agent for each task based on role config (e.g., Opus for reviews, GPT for CSS, Qwen for HTML)
-- [ ] Satellite agents using Claude Code communicate via CLI (`claude -p` with `--session-id`/`--resume` for multi-turn)
-- [ ] Satellite agents using Codex communicate via CLI (`codex exec` with `resume <THREAD_ID>` for multi-turn)
-- [ ] Satellite agents using Goose communicate via CLI (`goose run` with `--session-id`/`--resume` for multi-turn)
-- [ ] Goose backend supports local LLMs (Ollama, LM Studio, llama.cpp) via its built-in provider system
-- [ ] Parallel execution of independent tasks (task A depends on B & C; B depends on D; so D & C run simultaneously)
-- [ ] Orchestrator answers satellite agent questions/clarifications using its full plan context
-- [ ] After each task completes, orchestrator can spawn follow-up agents (reviewer, tester) per workflow config
-- [ ] TUI displays split panes showing parallel agent activity simultaneously
-- [ ] Predefined workflows configurable (e.g., code -> review -> test pipeline)
-- [ ] Orchestrator is a configurable agent definition — provider and model are swappable, nothing hardcoded
-- [ ] All multi-turn conversations maintain full context across turns
+(Fresh for next milestone — define via `/gsd:new-milestone`)
 
 ### Out of Scope
 
-- Mobile or web UI — terminal TUI only
+- Mobile or web UI — terminal TUI only, this is a local developer tool
 - Building custom LLM provider abstraction — agent CLIs handle LLM communication
 - Building custom tool systems — agent CLIs have tools built in
 - Cloud hosting or SaaS deployment — this is a local developer tool
 - Real-time collaboration between multiple human users
 - Custom model training or fine-tuning integration
+- Real-time multi-agent file editing — use task-level parallelism with file ownership instead
+- Unlimited agent spawning — bound to 2-4 concurrent agents (coordination complexity grows O(n^2))
 
 ## Context
+
+**Current state:** v1.0 shipped. 11,828 lines of Go across 6 phases.
+
+**Tech stack:** Go, Bubble Tea v1.x, Lip Gloss, Huh (forms), modernc.org/sqlite (pure-Go), cenkalti/backoff, sony/gobreaker, gammazero/toposort.
 
 **Architecture:** Standalone Go binary with Bubble Tea TUI. All LLM interaction happens through subprocess agent CLIs — the orchestrator never calls LLM APIs directly. Each agent CLI already provides tools (file edit, shell, etc.), model selection, multi-turn sessions, and structured output. The orchestrator's job is coordination: planning, scheduling, monitoring, and quality control.
 
@@ -80,16 +90,19 @@ The orchestrator enables a single developer to plan a task with an AI, then have
 
 ## Key Decisions
 
-<!-- Decisions that constrain future work. Add throughout project lifecycle. -->
-
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Build standalone rather than fork Crush | Avoids fork maintenance burden. Agent CLIs (Claude Code, Codex, Goose) already provide tools, multi-turn, and structured output — no need to reuse Crush internals. We only need Crush's TUI design as inspiration. | — Pending |
-| Use agent CLIs as subprocess backends | Each CLI already has tools, model selection, multi-turn sessions, and structured output. No need to build LLM provider abstraction or tool systems. Adding new backends = implementing a thin adapter. | — Pending |
-| Goose for local LLMs | Goose supports Ollama/LM Studio/llama.cpp with full agentic tools, custom system prompts, multi-turn, and JSON output — all from CLI. No need to build a local LLM integration ourselves. | — Pending |
-| Hub-and-spoke agent architecture | Orchestrator holds full context, satellites are stateless workers. Keeps satellite agents simple and focused. Orchestrator handles inter-agent coordination. | — Pending |
-| DAG-based task scheduling | Dependency resolution enables maximum parallelism (run independent tasks simultaneously) while respecting ordering constraints. | — Pending |
-| Split-pane TUI for parallel agents | User can monitor all running agents simultaneously. Natural fit for Bubble Tea's component model. | — Pending |
+| Build standalone rather than fork Crush | Avoids fork maintenance burden. Agent CLIs provide tools, multi-turn, and structured output. | ✓ Good |
+| Use agent CLIs as subprocess backends | Each CLI has tools, model selection, multi-turn sessions, and structured output. Adding new backends = thin adapter. | ✓ Good |
+| Goose for local LLMs | Supports Ollama/LM Studio/llama.cpp with full CLI capabilities. | ✓ Good |
+| Hub-and-spoke agent architecture | Orchestrator holds full context, satellites are stateless workers. | ✓ Good |
+| DAG-based task scheduling | Dependency resolution enables maximum parallelism while respecting ordering. | ✓ Good |
+| Split-pane TUI for parallel agents | User monitors all running agents simultaneously. Natural fit for Bubble Tea. | ✓ Good |
+| Bubble Tea v1.x (not v2 beta) | Production reliability over bleeding-edge features. | ✓ Good |
+| modernc.org/sqlite (pure Go) | No CGO dependency, simpler cross-compilation. | ✓ Good |
+| Plain errgroup.Group for failure isolation | One task's failure doesn't cancel siblings — correct behavior for independent agents. | ✓ Good |
+| Per-backend-type circuit breakers | Right granularity — if Claude is down, still try Codex. Per-task too fine, global too coarse. | ✓ Good |
+| WAL mode + busy_timeout for SQLite | Handles concurrent agent writes without contention. | ✓ Good |
 
 ---
-*Last updated: 2026-02-10 after architecture pivot to standalone (no Crush fork)*
+*Last updated: 2026-02-10 after v1.0 milestone*
