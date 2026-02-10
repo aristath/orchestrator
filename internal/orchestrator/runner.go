@@ -11,6 +11,7 @@ import (
 
 	"github.com/aristath/orchestrator/internal/backend"
 	"github.com/aristath/orchestrator/internal/events"
+	"github.com/aristath/orchestrator/internal/persistence"
 	"github.com/aristath/orchestrator/internal/scheduler"
 	"github.com/aristath/orchestrator/internal/worktree"
 )
@@ -38,6 +39,7 @@ type ParallelRunnerConfig struct {
 	BackendConfigs   map[string]backend.Config  // Maps agentRole to base backend config
 	BackendFactory   BackendFactory             // Optional factory for testing (overrides BackendConfigs)
 	EventBus         *events.EventBus           // Optional event bus (nil disables event publishing)
+	Store            persistence.Store          // Optional persistence store (nil disables)
 }
 
 // ParallelRunner executes DAG tasks concurrently with git worktree isolation.
@@ -49,6 +51,7 @@ type ParallelRunner struct {
 	mergeMu          sync.Mutex // Serializes git merge operations to prevent index.lock conflicts
 	activeWorktrees  map[string]*worktree.WorktreeInfo
 	results          []TaskResult
+	sessions         map[string]string // Maps taskID -> sessionID for resume support
 }
 
 // NewParallelRunner creates a new parallel runner.
@@ -63,6 +66,7 @@ func NewParallelRunner(cfg ParallelRunnerConfig, dag *scheduler.DAG, lockMgr *sc
 		lockMgr:         lockMgr,
 		activeWorktrees: make(map[string]*worktree.WorktreeInfo),
 		results:         []TaskResult{},
+		sessions:        make(map[string]string),
 	}
 }
 
@@ -73,8 +77,27 @@ func (r *ParallelRunner) publish(topic string, event events.Event) {
 	}
 }
 
+// checkpoint calls the given function with the store if configured.
+// Errors are logged but do not halt execution.
+func (r *ParallelRunner) checkpoint(fn func(persistence.Store) error) {
+	if r.config.Store != nil {
+		if err := fn(r.config.Store); err != nil {
+			log.Printf("WARNING: checkpoint failed: %v", err)
+		}
+	}
+}
+
 // Run executes all eligible tasks concurrently with bounded concurrency.
 func (r *ParallelRunner) Run(ctx context.Context) ([]TaskResult, error) {
+	// Persist full DAG structure to store at the start
+	if r.config.Store != nil {
+		for _, task := range r.dag.Tasks() {
+			if err := r.config.Store.SaveTask(ctx, task); err != nil {
+				log.Printf("WARNING: failed to persist task %q: %v", task.ID, err)
+			}
+		}
+	}
+
 	// Clean stale worktrees from prior crashes
 	if err := r.config.WorktreeManager.Prune(); err != nil {
 		log.Printf("WARNING: failed to prune stale worktrees: %v", err)
@@ -174,6 +197,11 @@ func (r *ParallelRunner) executeTask(ctx context.Context, task *scheduler.Task) 
 		return nil
 	}
 
+	// Checkpoint: task status changed to Running
+	r.checkpoint(func(s persistence.Store) error {
+		return s.UpdateTaskStatus(ctx, task.ID, scheduler.TaskRunning, "", nil)
+	})
+
 	// Publish TaskStarted event
 	r.publish(events.TopicTask, events.TaskStartedEvent{
 		ID:        task.ID,
@@ -228,12 +256,18 @@ func (r *ParallelRunner) executeTask(ctx context.Context, task *scheduler.Task) 
 	resp, err := b.Send(ctx, backend.Message{Content: task.Prompt, Role: "user"})
 	if err != nil {
 		_ = r.config.WorktreeManager.ForceCleanup(wtInfo)
-		_ = r.dag.MarkFailed(task.ID, err)
+		taskErr := err
+		_ = r.dag.MarkFailed(task.ID, taskErr)
+
+		// Checkpoint: task failed
+		r.checkpoint(func(s persistence.Store) error {
+			return s.UpdateTaskStatus(ctx, task.ID, scheduler.TaskFailed, "", taskErr)
+		})
 
 		// Publish TaskFailed event
 		r.publish(events.TopicTask, events.TaskFailedEvent{
 			ID:       task.ID,
-			Err:      err,
+			Err:      taskErr,
 			Duration: time.Since(startTime),
 			Timestamp: time.Now(),
 		})
@@ -241,13 +275,30 @@ func (r *ParallelRunner) executeTask(ctx context.Context, task *scheduler.Task) 
 		r.recordResult(TaskResult{
 			TaskID:  task.ID,
 			Success: false,
-			Error:   err,
+			Error:   taskErr,
 		})
 		return nil
 	}
 
 	// Mark task completed
 	_ = r.dag.MarkCompleted(task.ID, resp.Content)
+
+	// Checkpoint: save conversation, session, and completed status
+	r.checkpoint(func(s persistence.Store) error {
+		// Save the prompt we sent
+		if err := s.SaveMessage(ctx, task.ID, "user", task.Prompt); err != nil {
+			return err
+		}
+		// Save the response we received
+		if err := s.SaveMessage(ctx, task.ID, "assistant", resp.Content); err != nil {
+			return err
+		}
+		// Save session for resume capability
+		if err := s.SaveSession(ctx, task.ID, b.SessionID(), r.backendType(task)); err != nil {
+			return err
+		}
+		return s.UpdateTaskStatus(ctx, task.ID, scheduler.TaskCompleted, resp.Content, nil)
+	})
 
 	// Publish TaskCompleted event
 	r.publish(events.TopicTask, events.TaskCompletedEvent{
@@ -334,6 +385,10 @@ func (r *ParallelRunner) createBackend(agentRole string, workDir string) (backen
 	cfg := baseCfg
 	cfg.WorkDir = workDir
 
+	// Check if we have a persisted session for this task (extracted from workDir)
+	// Note: This is for future multi-turn support; currently sessions are task-specific
+	// and not reused across tasks
+
 	return backend.New(cfg, r.config.ProcessManager)
 }
 
@@ -387,4 +442,55 @@ func (r *ParallelRunner) publishProgress() {
 		Pending:   pending,
 		Timestamp: time.Now(),
 	})
+}
+
+// backendType looks up the backend type from config for a given task.
+// Returns "unknown" if not found.
+func (r *ParallelRunner) backendType(task *scheduler.Task) string {
+	if cfg, ok := r.config.BackendConfigs[task.AgentRole]; ok {
+		return cfg.Type
+	}
+	return "unknown"
+}
+
+// Resume reconstructs the DAG from the persisted store and continues execution.
+// Completed and Failed tasks are skipped; only Pending and eligible tasks are executed.
+func (r *ParallelRunner) Resume(ctx context.Context) ([]TaskResult, error) {
+	if r.config.Store == nil {
+		return nil, fmt.Errorf("cannot resume: no Store configured")
+	}
+
+	// Load all tasks from store
+	tasks, err := r.config.Store.ListTasks(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load tasks from store: %w", err)
+	}
+
+	// Create a new DAG and add each task
+	dag := scheduler.NewDAG()
+	for _, task := range tasks {
+		if err := dag.AddTask(task); err != nil {
+			return nil, fmt.Errorf("failed to add task %q to DAG: %w", task.ID, err)
+		}
+	}
+
+	// Validate DAG (cycle detection)
+	if _, err := dag.Validate(); err != nil {
+		return nil, fmt.Errorf("DAG validation failed: %w", err)
+	}
+
+	// Set reconstructed DAG
+	r.dag = dag
+
+	// Load persisted sessions for resume support
+	for _, task := range tasks {
+		sessionID, _, err := r.config.Store.GetSession(ctx, task.ID)
+		if err == nil {
+			r.sessions[task.ID] = sessionID
+		}
+		// Ignore errors - not all tasks will have sessions
+	}
+
+	// Run the DAG - eligible() will skip Completed/Failed tasks
+	return r.Run(ctx)
 }
