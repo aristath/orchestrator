@@ -70,14 +70,8 @@ func (r *CircuitBreakerRegistry) Get(backendType string) *gobreaker.CircuitBreak
 			log.Printf("Circuit breaker %q: %s -> %s", name, from, to)
 		},
 		IsSuccessful: func(err error) bool {
-			// Don't count user cancellation as backend failure
-			if err == nil {
-				return true
-			}
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return true
-			}
-			return false
+			// Success means no error OR user cancellation (not a backend failure)
+			return err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 		},
 	})
 

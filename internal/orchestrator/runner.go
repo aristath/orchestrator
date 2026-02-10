@@ -31,15 +31,17 @@ type BackendFactory func(agentRole string, workDir string) (backend.Backend, err
 
 // ParallelRunnerConfig configures the parallel runner.
 type ParallelRunnerConfig struct {
-	ConcurrencyLimit int                        // Max concurrent tasks (default 4)
-	MergeStrategy    worktree.MergeStrategy     // Merge strategy for worktrees
-	WorktreeManager  *worktree.WorktreeManager  // Worktree manager instance
-	QAChannel        *QAChannel                 // Optional Q&A channel (nil disables)
-	ProcessManager   *backend.ProcessManager    // Process manager for backend creation
-	BackendConfigs   map[string]backend.Config  // Maps agentRole to base backend config
-	BackendFactory   BackendFactory             // Optional factory for testing (overrides BackendConfigs)
-	EventBus         *events.EventBus           // Optional event bus (nil disables event publishing)
-	Store            persistence.Store          // Optional persistence store (nil disables)
+	ConcurrencyLimit       int                        // Max concurrent tasks (default 4)
+	MergeStrategy          worktree.MergeStrategy     // Merge strategy for worktrees
+	WorktreeManager        *worktree.WorktreeManager  // Worktree manager instance
+	QAChannel              *QAChannel                 // Optional Q&A channel (nil disables)
+	ProcessManager         *backend.ProcessManager    // Process manager for backend creation
+	BackendConfigs         map[string]backend.Config  // Maps agentRole to base backend config
+	BackendFactory         BackendFactory             // Optional factory for testing (overrides BackendConfigs)
+	EventBus               *events.EventBus           // Optional event bus (nil disables event publishing)
+	Store                  persistence.Store          // Optional persistence store (nil disables)
+	RetryConfig            RetryConfig                // Retry configuration (zero value uses defaults)
+	CircuitBreakerRegistry *CircuitBreakerRegistry    // Optional (nil creates default on first use)
 }
 
 // ParallelRunner executes DAG tasks concurrently with git worktree isolation.
@@ -52,12 +54,24 @@ type ParallelRunner struct {
 	activeWorktrees  map[string]*worktree.WorktreeInfo
 	results          []TaskResult
 	sessions         map[string]string // Maps taskID -> sessionID for resume support
+	cbRegistry       *CircuitBreakerRegistry
 }
 
 // NewParallelRunner creates a new parallel runner.
 func NewParallelRunner(cfg ParallelRunnerConfig, dag *scheduler.DAG, lockMgr *scheduler.ResourceLockManager) *ParallelRunner {
 	if cfg.ConcurrencyLimit <= 0 {
 		cfg.ConcurrencyLimit = 4
+	}
+
+	// Initialize circuit breaker registry
+	cbRegistry := cfg.CircuitBreakerRegistry
+	if cbRegistry == nil {
+		cbRegistry = NewCircuitBreakerRegistry()
+	}
+
+	// Apply retry config defaults if zero-valued
+	if cfg.RetryConfig == (RetryConfig{}) {
+		cfg.RetryConfig = DefaultRetryConfig()
 	}
 
 	return &ParallelRunner{
@@ -67,6 +81,7 @@ func NewParallelRunner(cfg ParallelRunnerConfig, dag *scheduler.DAG, lockMgr *sc
 		activeWorktrees: make(map[string]*worktree.WorktreeInfo),
 		results:         []TaskResult{},
 		sessions:        make(map[string]string),
+		cbRegistry:      cbRegistry,
 	}
 }
 
@@ -142,24 +157,20 @@ func (r *ParallelRunner) Run(ctx context.Context) ([]TaskResult, error) {
 		}
 
 		// Execute wave of tasks with bounded concurrency
-		g, gctx := errgroup.WithContext(ctx)
+		g := new(errgroup.Group)
 		g.SetLimit(r.config.ConcurrencyLimit)
 
 		for _, task := range eligible {
 			// Capture task for closure
 			t := task
 			g.Go(func() error {
-				return r.executeTask(gctx, t)
+				return r.executeTask(ctx, t)
 			})
 		}
 
 		// Wait for wave to complete
 		if err := g.Wait(); err != nil {
-			// Context cancellation or unrecoverable error
-			if ctx.Err() != nil {
-				return r.results, ctx.Err()
-			}
-			// Task errors are tracked in DAG, not returned here
+			log.Printf("Wave completed with errors: %v", err)
 		}
 
 		// Publish progress after wave completes
@@ -252,8 +263,10 @@ func (r *ParallelRunner) executeTask(ctx context.Context, task *scheduler.Task) 
 	r.lockMgr.LockAll(task.WritesFiles)
 	defer r.lockMgr.UnlockAll(task.WritesFiles)
 
-	// Send task to backend
-	resp, err := b.Send(ctx, backend.Message{Content: task.Prompt, Role: "user"})
+	// Send task to backend with retry and circuit breaker
+	backendType := r.backendType(task)
+	cb := r.cbRegistry.Get(backendType)
+	resp, err := sendWithRetry(ctx, b, backend.Message{Content: task.Prompt, Role: "user"}, cb, r.config.RetryConfig)
 	if err != nil {
 		_ = r.config.WorktreeManager.ForceCleanup(wtInfo)
 		taskErr := err

@@ -1087,6 +1087,13 @@ func TestCheckpointOnTaskFailure(t *testing.T) {
 		WorktreeManager: wtMgr,
 		BackendFactory:  factory.factory,
 		Store:           store,
+		RetryConfig: RetryConfig{
+			InitialInterval:     10 * time.Millisecond,
+			MaxInterval:         50 * time.Millisecond,
+			MaxElapsedTime:      200 * time.Millisecond, // Short retry window
+			Multiplier:          2.0,
+			RandomizationFactor: 0.5,
+		},
 	}
 
 	runner := NewParallelRunner(cfg, dag, lockMgr)
@@ -1120,8 +1127,10 @@ func TestCheckpointOnTaskFailure(t *testing.T) {
 		t.Error("expected error to be persisted")
 	}
 
-	if !strings.Contains(persistedTask.Error.Error(), "simulated backend error") {
-		t.Errorf("expected error to contain 'simulated backend error', got %q", persistedTask.Error.Error())
+	// Error could be the original "simulated backend error" or "circuit breaker is open" after retries
+	errMsg := persistedTask.Error.Error()
+	if !strings.Contains(errMsg, "simulated backend error") && !strings.Contains(errMsg, "circuit breaker is open") {
+		t.Errorf("expected error to contain 'simulated backend error' or 'circuit breaker is open', got %q", errMsg)
 	}
 }
 
@@ -1296,6 +1305,133 @@ func TestResumeSkipsCompletedTasks(t *testing.T) {
 	if len(results) != 1 {
 		t.Errorf("expected 1 result, got %d", len(results))
 	}
+}
+
+// TestFailureIsolation_IndependentTasks verifies one task failure doesn't cancel others.
+func TestFailureIsolation_IndependentTasks(t *testing.T) {
+	repoPath := setupTestRepo(t)
+
+	// Create DAG with 3 independent tasks
+	dag := scheduler.NewDAG()
+	task1 := &scheduler.Task{
+		ID:          "task-1",
+		Name:        "Task 1",
+		AgentRole:   "coder",
+		Prompt:      "Work 1",
+		DependsOn:   []string{},
+		WritesFiles: []string{},
+		Status:      scheduler.TaskPending,
+		FailureMode: scheduler.FailHard,
+	}
+	task2 := &scheduler.Task{
+		ID:          "task-2",
+		Name:        "Task 2",
+		AgentRole:   "coder",
+		Prompt:      "Work 2",
+		DependsOn:   []string{},
+		WritesFiles: []string{},
+		Status:      scheduler.TaskPending,
+		FailureMode: scheduler.FailHard,
+	}
+	task3 := &scheduler.Task{
+		ID:          "task-3",
+		Name:        "Task 3",
+		AgentRole:   "coder",
+		Prompt:      "Work 3",
+		DependsOn:   []string{},
+		WritesFiles: []string{},
+		Status:      scheduler.TaskPending,
+		FailureMode: scheduler.FailHard,
+	}
+
+	if err := dag.AddTask(task1); err != nil {
+		t.Fatalf("failed to add task-1: %v", err)
+	}
+	if err := dag.AddTask(task2); err != nil {
+		t.Fatalf("failed to add task-2: %v", err)
+	}
+	if err := dag.AddTask(task3); err != nil {
+		t.Fatalf("failed to add task-3: %v", err)
+	}
+
+	wtMgr := worktree.NewWorktreeManager(worktree.WorktreeManagerConfig{
+		RepoPath:   repoPath,
+		BaseBranch: "main",
+	})
+
+	// Mock backend: task-1 fails, task-2 and task-3 succeed
+	factory := newMockBackendFactory()
+	factory.onSend = func(ctx context.Context, msg backend.Message, workDir string) (backend.Response, error) {
+		taskID := filepath.Base(workDir)
+		if taskID == "task-1" {
+			return backend.Response{}, fmt.Errorf("task-1 simulated failure")
+		}
+		return backend.Response{Content: "success", SessionID: "mock"}, nil
+	}
+
+	lockMgr := scheduler.NewResourceLockManager()
+	cfg := ParallelRunnerConfig{
+		WorktreeManager: wtMgr,
+		BackendFactory:  factory.factory,
+	}
+
+	runner := NewParallelRunner(cfg, dag, lockMgr)
+
+	ctx := context.Background()
+	results, err := runner.Run(ctx)
+
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if len(results) != 3 {
+		t.Fatalf("expected 3 results, got %d", len(results))
+	}
+
+	// Verify task-1 is marked Failed in DAG
+	if task1.Status != scheduler.TaskFailed {
+		t.Errorf("expected task-1 status Failed, got %v", task1.Status)
+	}
+
+	// Verify task-2 and task-3 are marked Completed in DAG
+	if task2.Status != scheduler.TaskCompleted {
+		t.Errorf("expected task-2 status Completed, got %v", task2.Status)
+	}
+	if task3.Status != scheduler.TaskCompleted {
+		t.Errorf("expected task-3 status Completed, got %v", task3.Status)
+	}
+
+	// Verify results
+	var task1Result, task2Result, task3Result *TaskResult
+	for i := range results {
+		switch results[i].TaskID {
+		case "task-1":
+			task1Result = &results[i]
+		case "task-2":
+			task2Result = &results[i]
+		case "task-3":
+			task3Result = &results[i]
+		}
+	}
+
+	if task1Result == nil || task2Result == nil || task3Result == nil {
+		t.Fatal("missing result(s)")
+	}
+
+	// task-1 should have failed
+	if task1Result.Success {
+		t.Error("expected task-1 to fail")
+	}
+
+	// task-2 and task-3 should have succeeded
+	if !task2Result.Success {
+		t.Errorf("expected task-2 to succeed, got error: %v", task2Result.Error)
+	}
+	if !task3Result.Success {
+		t.Errorf("expected task-3 to succeed, got error: %v", task3Result.Error)
+	}
+
+	t.Log("Failure isolation verified: task-1 failed, task-2 and task-3 succeeded independently")
 }
 
 // TestResumeRestoresSessionID verifies session IDs are persisted and retrievable.
