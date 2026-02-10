@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-10)
 
 **Core value:** A single developer plans a task with an AI, then that AI autonomously decomposes and executes the plan across multiple specialized agents running in parallel -- coordinating them, answering their questions, and ensuring quality.
-**Current focus:** Phase 2 - Agent Definitions and DAG Scheduler
+**Current focus:** Phase 3 - Parallel Execution with Git Isolation
 
 ## Current Position
 
-Phase: 2 of 6 (Agent Definitions and DAG Scheduler)
-Plan: 4 of 5 in current phase
+Phase: 3 of 6 (Parallel Execution with Git Isolation)
+Plan: 2 of 5 in current phase
 Status: In progress
-Last activity: 2026-02-10 -- Completed 02-04-PLAN.md (Workflow engine for follow-up task spawning)
+Last activity: 2026-02-10 -- Completed 03-02-PLAN.md (Non-blocking Q&A channel for agent-orchestrator communication)
 
 Progress: [████████░░] 80%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
-- Average duration: 156 seconds
-- Total execution time: 0.35 hours
+- Total plans completed: 9
+- Average duration: 153 seconds
+- Total execution time: 0.38 hours
 
 **By Phase:**
 
@@ -29,10 +29,11 @@ Progress: [████████░░] 80%
 |-------|-------|-------|----------|
 | 01 | 5 | 910s | 182s |
 | 02 | 3 | 405s | 135s |
+| 03 | 1 | 144s | 144s |
 
 **Recent Trend:**
-- Last 5 plans: 238s, 334s, 97s, 162s, 146s (avg: 195s)
-- Trend: Phase 2 maintaining efficient pace
+- Last 5 plans: 97s, 162s, 146s, 144s (avg: 137s)
+- Trend: Phase 3 started, maintaining efficient pace
 
 *Updated after each plan completion*
 
@@ -46,6 +47,7 @@ Progress: [████████░░] 80%
 | Phase 02 P01 | 97s | 2 tasks | 4 files |
 | Phase 02 P02 | 162s | 2 tasks | 3 files |
 | Phase 02 P04 | 146s | 2 tasks | 2 files |
+| Phase 03 P02 | 144s | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -84,6 +86,10 @@ Recent decisions affecting current work:
 - [02-04]: Review tasks use FailSoft (code can proceed), test tasks use FailHard (blocks on failure)
 - [02-04]: Simple prompt template for follow-ups: 'Review the output of task X: Y' (Phase 3+ will refine)
 - [02-04]: Multiple workflows can share same agent roles - all workflows spawn follow-ups
+- [03-02]: Buffer size configurable by caller (recommended 2x concurrency)
+- [03-02]: Per-question response channels prevent cross-talk without mutex
+- [03-02]: Serial question processing by single handler goroutine
+- [03-02]: Double select in Ask prevents goroutine leak on cancellation
 
 ### Pending Todos
 
@@ -91,17 +97,18 @@ None yet.
 
 ### Blockers/Concerns
 
-**Phase 2 In Progress - No Blockers**
+**Phase 3 In Progress - No Blockers**
 
-Phase 1 complete. Phase 2 Plans 01-02-04 complete:
+Phase 1-2 complete. Phase 3 Plan 02 complete:
 - Config type system implemented with three-tier merge (defaults -> global -> project)
 - DAG scheduler with task types, topological sort, and cycle detection
 - Dependency resolution respects FailHard/FailSoft/FailSkip failure modes
 - WorkflowManager spawns follow-up tasks (code -> review -> test) with DAG validation
-- All tests passing (8 config tests, 23 DAG tests, 8 workflow tests with -race flag)
+- QAChannel for non-blocking agent-orchestrator communication
+- All tests passing (8 config tests, 23 DAG tests, 8 workflow tests, 7 QAChannel tests with -race flag)
 
 ## Session Continuity
 
 Last session: 2026-02-10
-Stopped at: Completed 02-04-PLAN.md (Workflow engine for follow-up task spawning)
+Stopped at: Completed 03-02-PLAN.md (Non-blocking Q&A channel for agent-orchestrator communication)
 Resume file: None
