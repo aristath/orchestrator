@@ -22,8 +22,7 @@ type Backend interface {
 func New(cfg Config, pm *ProcessManager) (Backend, error) {
 	switch cfg.Type {
 	case "claude":
-		// TODO: Implement Claude Code adapter in plan 01-02
-		return nil, fmt.Errorf("unknown backend type: %s", cfg.Type)
+		return NewClaudeAdapter(cfg, pm)
 	case "codex":
 		return NewCodexAdapter(cfg, pm)
 	case "goose":

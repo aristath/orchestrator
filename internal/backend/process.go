@@ -25,13 +25,18 @@ func newCommand(ctx context.Context, name string, args ...string) *exec.Cmd {
 // This function implements the concurrent pipe reading pattern to prevent deadlocks:
 // 1. Create stdout and stderr pipes
 // 2. Start the command
-// 3. Read both pipes concurrently in separate goroutines
-// 4. Wait for both readers to complete (wg.Wait)
-// 5. Wait for the command to finish (cmd.Wait)
+// 3. Track the process (if pm is non-nil)
+// 4. Read both pipes concurrently in separate goroutines
+// 5. Wait for both readers to complete (wg.Wait)
+// 6. Wait for the command to finish (cmd.Wait)
+// 7. Untrack the process (if pm is non-nil)
 //
 // This pattern ensures pipes are fully drained before calling cmd.Wait(),
 // preventing deadlocks when subprocess output exceeds pipe buffer capacity.
-func executeCommand(ctx context.Context, cmd *exec.Cmd) (stdout []byte, stderr []byte, err error) {
+//
+// If pm (ProcessManager) is provided, the command will be tracked after Start
+// and untracked after Wait, enabling graceful shutdown of subprocesses.
+func executeCommand(ctx context.Context, cmd *exec.Cmd, pm *ProcessManager) (stdout []byte, stderr []byte, err error) {
 	// Create pipes for stdout and stderr
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -46,6 +51,12 @@ func executeCommand(ctx context.Context, cmd *exec.Cmd) (stdout []byte, stderr [
 	// Start the command
 	if err := cmd.Start(); err != nil {
 		return nil, nil, fmt.Errorf("failed to start command: %w", err)
+	}
+
+	// Track the process if ProcessManager is provided
+	if pm != nil {
+		pm.Track(cmd)
+		defer pm.Untrack(cmd)
 	}
 
 	// Read both pipes concurrently
