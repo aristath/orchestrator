@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 2: Agent Definitions and DAG Scheduler** - JSON agent config, DAG construction with topological sort, resource locking, failure classification, and workflow definitions
 - [x] **Phase 3: Parallel Execution with Git Isolation** - Bounded concurrent agents in isolated git worktrees with merge-back and orchestrator Q&A
 - [x] **Phase 4: Event Bus and TUI Integration** - Split-pane Bubble Tea TUI with per-agent viewports, vim navigation, status indicators, and DAG progress
-- [ ] **Phase 5: State Management and Session Persistence** - SQLite persistence for task state, conversation history, checkpointing, and session ID continuity
+- [x] **Phase 5: State Management and Session Persistence** - SQLite persistence for task state, conversation history, checkpointing, and session ID continuity
 - [ ] **Phase 6: Resilience and Production Hardening** - Retry with backoff, circuit breakers, failure isolation, and graceful shutdown
 
 ## Phase Details
@@ -130,11 +130,11 @@ Plans:
   2. A persistently failing backend trips a circuit breaker that stops new requests to that backend until it recovers
   3. One agent failing does not cause unrelated parallel agents to abort — they continue executing independently
   4. Pressing Ctrl+C triggers graceful shutdown: all subprocess trees are killed, partial work is checkpointed, and the orchestrator exits cleanly
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 06-01: TBD
-- [ ] 06-02: TBD
+- [ ] 06-01-PLAN.md — Retry with exponential backoff, per-backend circuit breakers, and failure isolation in parallel runner
+- [ ] 06-02-PLAN.md — Graceful shutdown with signal handling, ProcessManager integration, and shutdown timeout
 
 ## Progress
 
@@ -148,4 +148,4 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 3. Parallel Execution with Git Isolation | 3/3 | ✓ Complete | 2026-02-10 |
 | 4. Event Bus and TUI Integration | 3/3 | ✓ Complete | 2026-02-10 |
 | 5. State Management and Session Persistence | 3/3 | ✓ Complete | 2026-02-10 |
-| 6. Resilience and Production Hardening | 0/TBD | Not started | - |
+| 6. Resilience and Production Hardening | 0/2 | Not started | - |
