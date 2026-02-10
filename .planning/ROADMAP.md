@@ -96,11 +96,12 @@ Plans:
   3. Each agent pane shows a status indicator (working, paused, failed, complete) visible without switching focus to that pane
   4. An orchestrator pane displays overall DAG progress — which tasks are complete, running, and pending
   5. TUI has a settings panel for editing global config (providers, agents, defaults) and per-project config (overrides)
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 04-01: TBD
-- [ ] 04-02: TBD
+- [ ] 04-01-PLAN.md — Event bus (channel-based pubsub) and ParallelRunner instrumentation to publish task lifecycle events
+- [ ] 04-02-PLAN.md — Bubble Tea TUI with split-pane layout, agent viewports, DAG progress pane, and vim-style navigation
+- [ ] 04-03-PLAN.md — Config save function and Huh-based settings panel integrated into TUI
 
 ### Phase 5: State Management and Session Persistence
 **Goal**: All task state, conversation history, and session IDs survive crashes and restarts — the orchestrator can resume from the last checkpoint without re-executing completed work
@@ -144,6 +145,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 1. Subprocess Management and Backend Abstraction | 5/5 | ✓ Complete | 2026-02-10 |
 | 2. Agent Definitions and DAG Scheduler | 5/5 | ✓ Complete | 2026-02-10 |
 | 3. Parallel Execution with Git Isolation | 3/3 | ✓ Complete | 2026-02-10 |
-| 4. Event Bus and TUI Integration | 0/TBD | Not started | - |
+| 4. Event Bus and TUI Integration | 0/3 | Not started | - |
 | 5. State Management and Session Persistence | 0/TBD | Not started | - |
 | 6. Resilience and Production Hardening | 0/TBD | Not started | - |
