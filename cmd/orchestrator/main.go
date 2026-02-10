@@ -1,19 +1,31 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/aristath/orchestrator/internal/backend"
 	"github.com/aristath/orchestrator/internal/config"
 	"github.com/aristath/orchestrator/internal/events"
 	"github.com/aristath/orchestrator/internal/tui"
 )
 
 func main() {
+	// Create signal-aware context for graceful shutdown
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Create ProcessManager for subprocess tracking
+	pm := backend.NewProcessManager()
+
 	// Load configuration
 	cfg, err := config.LoadDefault()
 	if err != nil {
@@ -37,79 +49,55 @@ func main() {
 	// Create TUI model
 	model := tui.New(bus, cfg, globalPath, projectPath)
 
-	// Start Bubble Tea program
+	// Start Bubble Tea program in a goroutine so main can handle shutdown
 	p := tea.NewProgram(model, tea.WithAltScreen())
 
-	// Spawn a goroutine that publishes fake events for demo/testing
+	errChan := make(chan error, 1)
 	go func() {
-		time.Sleep(500 * time.Millisecond)
-
-		// Simulate task-1 starting
-		bus.Publish(events.TopicTask, events.TaskStartedEvent{
-			ID: "task-1", Name: "Implement auth", AgentRole: "coder",
-			Timestamp: time.Now(),
-		})
-
-		// Simulate some output
-		for i := 0; i < 20; i++ {
-			time.Sleep(100 * time.Millisecond)
-			bus.Publish(events.TopicTask, events.TaskOutputEvent{
-				ID: "task-1", Line: fmt.Sprintf("[task-1] Working on auth... step %d", i+1),
-				Timestamp: time.Now(),
-			})
-		}
-
-		// Simulate task-2 starting
-		bus.Publish(events.TopicTask, events.TaskStartedEvent{
-			ID: "task-2", Name: "Write tests", AgentRole: "tester",
-			Timestamp: time.Now(),
-		})
-
-		// DAG progress
-		bus.Publish(events.TopicDAG, events.DAGProgressEvent{
-			Total: 5, Completed: 0, Running: 2, Failed: 0, Pending: 3,
-			Timestamp: time.Now(),
-		})
-
-		// More output interleaved
-		for i := 0; i < 10; i++ {
-			time.Sleep(150 * time.Millisecond)
-			bus.Publish(events.TopicTask, events.TaskOutputEvent{
-				ID: "task-2", Line: fmt.Sprintf("[task-2] Running test suite... %d/10", i+1),
-				Timestamp: time.Now(),
-			})
-			bus.Publish(events.TopicTask, events.TaskOutputEvent{
-				ID: "task-1", Line: fmt.Sprintf("[task-1] Auth implementation continued... %d", i+21),
-				Timestamp: time.Now(),
-			})
-		}
-
-		// Complete task-1
-		bus.Publish(events.TopicTask, events.TaskCompletedEvent{
-			ID: "task-1", Result: "Auth implemented successfully",
-			Duration: 5 * time.Second, Timestamp: time.Now(),
-		})
-
-		bus.Publish(events.TopicDAG, events.DAGProgressEvent{
-			Total: 5, Completed: 1, Running: 1, Failed: 0, Pending: 3,
-			Timestamp: time.Now(),
-		})
-
-		// Complete task-2
-		time.Sleep(1 * time.Second)
-		bus.Publish(events.TopicTask, events.TaskCompletedEvent{
-			ID: "task-2", Result: "All tests passed",
-			Duration: 3 * time.Second, Timestamp: time.Now(),
-		})
-
-		bus.Publish(events.TopicDAG, events.DAGProgressEvent{
-			Total: 5, Completed: 2, Running: 0, Failed: 0, Pending: 3,
-			Timestamp: time.Now(),
-		})
+		_, err := p.Run()
+		errChan <- err
 	}()
 
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+	// TODO: Wire ParallelRunner here when DAG execution is integrated with TUI.
+	// The runner will publish real events to the bus.
+	// For now, TUI starts empty and waits for events.
+
+	// Handle shutdown
+	select {
+	case err := <-errChan:
+		// Normal TUI exit (user pressed 'q' or TUI finished)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	case <-ctx.Done():
+		// Signal received (Ctrl+C or SIGTERM)
+		// Call stop() to restore default signal handling (double Ctrl+C = force exit)
+		stop()
+
+		log.Println("Shutdown signal received, cleaning up...")
+
+		// Kill all tracked subprocesses
+		if err := pm.KillAll(); err != nil {
+			log.Printf("Error killing subprocesses: %v", err)
+		}
+
+		// Quit the TUI
+		p.Quit()
+
+		// Wait for TUI to exit with timeout
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		select {
+		case err := <-errChan:
+			if err != nil {
+				log.Printf("TUI exit error: %v", err)
+			}
+		case <-shutdownCtx.Done():
+			log.Println("Shutdown timeout exceeded, forcing exit")
+		}
 	}
+
+	log.Println("Shutdown complete")
 }
