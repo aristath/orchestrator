@@ -15,7 +15,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Subprocess Management and Backend Abstraction** - Unified Backend interface with subprocess adapters for Claude Code, Codex, and Goose, solving pipe deadlocks and process lifecycle
 - [x] **Phase 2: Agent Definitions and DAG Scheduler** - JSON agent config, DAG construction with topological sort, resource locking, failure classification, and workflow definitions
 - [x] **Phase 3: Parallel Execution with Git Isolation** - Bounded concurrent agents in isolated git worktrees with merge-back and orchestrator Q&A
-- [ ] **Phase 4: Event Bus and TUI Integration** - Split-pane Bubble Tea TUI with per-agent viewports, vim navigation, status indicators, and DAG progress
+- [x] **Phase 4: Event Bus and TUI Integration** - Split-pane Bubble Tea TUI with per-agent viewports, vim navigation, status indicators, and DAG progress
 - [ ] **Phase 5: State Management and Session Persistence** - SQLite persistence for task state, conversation history, checkpointing, and session ID continuity
 - [ ] **Phase 6: Resilience and Production Hardening** - Retry with backoff, circuit breakers, failure isolation, and graceful shutdown
 
@@ -113,11 +113,12 @@ Plans:
   2. Per-agent conversation history is stored and can be retrieved after restart
   3. Killing and restarting the orchestrator resumes from the last completed task checkpoint — completed tasks are not re-executed
   4. Multi-turn session IDs (Claude Code session-id, Codex thread-id, Goose session-id) are persisted so conversations can continue across restarts
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 05-01: TBD
-- [ ] 05-02: TBD
+- [ ] 05-01-PLAN.md — Store interface, SQLite schema, and task DAG persistence methods with tests
+- [ ] 05-02-PLAN.md — Session ID and conversation history persistence methods with tests
+- [ ] 05-03-PLAN.md — Wire Store into ParallelRunner for checkpointing and implement Resume from persisted state
 
 ### Phase 6: Resilience and Production Hardening
 **Goal**: Transient failures are retried automatically, persistently failing backends are circuit-broken, one agent's failure does not cascade to unrelated agents, and shutdown is graceful
@@ -146,5 +147,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 2. Agent Definitions and DAG Scheduler | 5/5 | ✓ Complete | 2026-02-10 |
 | 3. Parallel Execution with Git Isolation | 3/3 | ✓ Complete | 2026-02-10 |
 | 4. Event Bus and TUI Integration | 3/3 | ✓ Complete | 2026-02-10 |
-| 5. State Management and Session Persistence | 0/TBD | Not started | - |
+| 5. State Management and Session Persistence | 0/3 | Not started | - |
 | 6. Resilience and Production Hardening | 0/TBD | Not started | - |
