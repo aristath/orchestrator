@@ -77,11 +77,12 @@ Plans:
   2. Each running agent operates in its own git worktree, isolated from other agents' file changes
   3. When an agent completes, its worktree branch is merged back to the main branch via the configured merge strategy
   4. A satellite agent can ask the orchestrator a clarifying question and receive an answer from the orchestrator's full plan context without blocking other running agents
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [ ] 03-01-PLAN.md — Git worktree lifecycle manager: create, merge, cleanup, list, prune with configurable merge strategy
+- [ ] 03-02-PLAN.md — Non-blocking Q&A channel for satellite agent to orchestrator communication
+- [ ] 03-03-PLAN.md — Parallel runner wiring errgroup, worktrees, Q&A channel, and DAG executor with integration tests
 
 ### Phase 4: Event Bus and TUI Integration
 **Goal**: User can monitor all running agents in a split-pane Bubble Tea TUI with real-time output, navigate between panes, and see overall DAG progress at a glance
@@ -142,7 +143,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 |-------|----------------|--------|-----------|
 | 1. Subprocess Management and Backend Abstraction | 5/5 | ✓ Complete | 2026-02-10 |
 | 2. Agent Definitions and DAG Scheduler | 5/5 | ✓ Complete | 2026-02-10 |
-| 3. Parallel Execution with Git Isolation | 0/TBD | Not started | - |
+| 3. Parallel Execution with Git Isolation | 0/3 | Not started | - |
 | 4. Event Bus and TUI Integration | 0/TBD | Not started | - |
 | 5. State Management and Session Persistence | 0/TBD | Not started | - |
 | 6. Resilience and Production Hardening | 0/TBD | Not started | - |
