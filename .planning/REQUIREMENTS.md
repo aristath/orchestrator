@@ -19,11 +19,12 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Agent Definitions (AGNT)
 
-- [ ] **AGNT-01**: User defines agent roles via YAML config (system prompt, model, backend, tool set per role)
+- [ ] **AGNT-01**: User defines agent roles via JSON config (system prompt, model, provider, tool set per role)
 - [ ] **AGNT-02**: Predefined roles ship as defaults: orchestrator, coder, reviewer, tester
-- [ ] **AGNT-03**: Each agent role maps to a specific backend and model selection
+- [ ] **AGNT-03**: Each agent role maps to a specific provider and model (e.g., Opus for reviews, GPT for CSS, Qwen for HTML, Mistral for JS)
 - [ ] **AGNT-04**: Agent tool sets are configurable per role (e.g., reviewer gets read-only tools, coder gets full tools)
-- [ ] **AGNT-05**: Orchestrator agent holds full plan context and manages the entire task execution lifecycle
+- [ ] **AGNT-05**: Orchestrator is a configurable agent definition — provider and model are swappable, nothing hardcoded
+- [ ] **AGNT-06**: Providers are defined separately from agents — provider = transport config (CLI command, args), agent = role config (provider, model, prompt, tools)
 
 ### DAG Scheduling (SCHED)
 
@@ -127,6 +128,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | AGNT-03 | Phase 2 | Pending |
 | AGNT-04 | Phase 2 | Pending |
 | AGNT-05 | Phase 2 | Pending |
+| AGNT-06 | Phase 2 | Pending |
 | SCHED-01 | Phase 2 | Pending |
 | SCHED-02 | Phase 2 | Pending |
 | SCHED-03 | Phase 2 | Pending |
@@ -155,8 +157,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | RESIL-04 | Phase 6 | Pending |
 
 **Coverage:**
-- v1 requirements: 38 total
-- Mapped to phases: 38
+- v1 requirements: 39 total
+- Mapped to phases: 39
 - Unmapped: 0
 
 ---

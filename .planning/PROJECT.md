@@ -20,12 +20,13 @@ The orchestrator enables a single developer to plan a task with an AI, then have
 
 <!-- Current scope. Building toward these. -->
 
-- [ ] User can define custom agent roles via config (system prompt + model + backend + tool set per role)
+- [ ] Providers defined in JSON config — transport layer (CLI command, args, base config)
+- [ ] Agents defined in JSON config — role layer (provider, model, system prompt, tools per role)
 - [ ] Orchestrator agent holds full plan context and manages task execution
 - [ ] Orchestrator decomposes a plan into a DAG of sub-tasks with dependencies
 - [ ] Orchestrator spawns satellite agents for each sub-task
 - [ ] Orchestrator routes tasks to the appropriate backend (Claude Code, Codex, or Goose)
-- [ ] Orchestrator selects the best model for each task based on agent role config
+- [ ] Orchestrator selects the best agent for each task based on role config (e.g., Opus for reviews, GPT for CSS, Qwen for HTML)
 - [ ] Satellite agents using Claude Code communicate via CLI (`claude -p` with `--session-id`/`--resume` for multi-turn)
 - [ ] Satellite agents using Codex communicate via CLI (`codex exec` with `resume <THREAD_ID>` for multi-turn)
 - [ ] Satellite agents using Goose communicate via CLI (`goose run` with `--session-id`/`--resume` for multi-turn)
@@ -35,7 +36,7 @@ The orchestrator enables a single developer to plan a task with an AI, then have
 - [ ] After each task completes, orchestrator can spawn follow-up agents (reviewer, tester) per workflow config
 - [ ] TUI displays split panes showing parallel agent activity simultaneously
 - [ ] Predefined workflows configurable (e.g., code -> review -> test pipeline)
-- [ ] Orchestrator itself can run on any backend (Claude Code, Codex, or Goose — configurable)
+- [ ] Orchestrator is a configurable agent definition — provider and model are swappable, nothing hardcoded
 - [ ] All multi-turn conversations maintain full context across turns
 
 ### Out of Scope

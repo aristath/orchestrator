@@ -43,11 +43,12 @@ Plans:
 ### Phase 2: Agent Definitions and DAG Scheduler
 **Goal**: Users can define agent roles via YAML config, and the orchestrator can decompose a plan into a validated DAG of tasks with dependency resolution, resource locking, and failure classification
 **Depends on**: Phase 1
-**Requirements**: AGNT-01, AGNT-02, AGNT-03, AGNT-04, AGNT-05, SCHED-01, SCHED-02, SCHED-03, SCHED-04, SCHED-05, SCHED-06, WORK-01, WORK-02, WORK-03
+**Requirements**: AGNT-01, AGNT-02, AGNT-03, AGNT-04, AGNT-05, AGNT-06, SCHED-01, SCHED-02, SCHED-03, SCHED-04, SCHED-05, SCHED-06, WORK-01, WORK-02, WORK-03
 **Key Risks**: DAG cycle detection must be bulletproof — a cycle causes infinite blocking. File-level resource locking adds complexity but is essential before parallel execution. Workflow config (code->review->test) must compose cleanly with DAG scheduling.
 **Success Criteria** (what must be TRUE):
-  1. User can define custom agent roles in a YAML config file specifying system prompt, model, backend, and tool set per role
-  2. Default roles (orchestrator, coder, reviewer, tester) ship out of the box and are usable without custom config
+  1. Providers are defined in JSON config (CLI command, args, transport config) separately from agents
+  2. Agents are defined in JSON config (provider, model, system prompt, tools per role) — e.g., Opus for reviews, GPT for CSS, Qwen for HTML
+  3. Default roles (orchestrator, coder, reviewer, tester) ship out of the box and are usable without custom config
   3. Orchestrator agent decomposes a plan into a DAG where each node is a task and edges represent dependencies
   4. DAG rejects circular dependencies at construction time with a clear error message identifying the cycle
   5. Tasks that have no unresolved dependencies are marked eligible for execution, and completing a task triggers downstream dependency resolution
