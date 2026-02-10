@@ -5,23 +5,23 @@
 See: .planning/PROJECT.md (updated 2026-02-10)
 
 **Core value:** A single developer plans a task with an AI, then that AI autonomously decomposes and executes the plan across multiple specialized agents running in parallel -- coordinating them, answering their questions, and ensuring quality.
-**Current focus:** Phase 3 - Parallel Execution with Git Isolation
+**Current focus:** Phase 4 - Event Bus and TUI Integration
 
 ## Current Position
 
-Phase: 3 of 6 (Parallel Execution with Git Isolation)
-Plan: 3 of 3 in current phase (PHASE COMPLETE)
-Status: Phase 3 complete
-Last activity: 2026-02-10 -- Completed 03-03-PLAN.md (Parallel runner with worktrees and QA channel)
+Phase: 4 of 6 (Event Bus and TUI Integration)
+Plan: 1 of 3 in current phase
+Status: In progress
+Last activity: 2026-02-10 -- Completed 04-01-PLAN.md (Event bus and ParallelRunner instrumentation)
 
-Progress: [██████████] 100%
+Progress: [████------] 33%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 11
-- Average duration: 266 seconds
-- Total execution time: 0.81 hours
+- Total plans completed: 12
+- Average duration: 268 seconds
+- Total execution time: 0.89 hours
 
 **By Phase:**
 
@@ -30,10 +30,11 @@ Progress: [██████████] 100%
 | 01 | 5 | 910s | 182s |
 | 02 | 3 | 405s | 135s |
 | 03 | 3 | 1706s | 569s |
+| 04 | 1 | 224s | 224s |
 
 **Recent Trend:**
-- Last 5 plans: 146s, 144s, 228s, 1334s (avg: 463s)
-- Trend: Phase 3-03 significantly longer due to comprehensive integration testing and bug fix
+- Last 5 plans: 144s, 228s, 1334s, 224s (avg: 482s)
+- Trend: Phase 04-01 back to normal duration after Phase 3-03 spike
 
 *Updated after each plan completion*
 
@@ -50,6 +51,7 @@ Progress: [██████████] 100%
 | Phase 03 P02 | 144s | 2 tasks | 2 files |
 | Phase 03 P01 | 228s | 2 tasks | 3 files |
 | Phase 03 P03 | 1334s | 2 tasks | 3 files |
+| Phase 04 P01 | 224 | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -102,6 +104,8 @@ Recent decisions affecting current work:
 - [03-03]: Task success independent of merge success (isolation principle)
 - [03-03]: Task errors tracked in DAG, not errgroup return value
 - [03-03]: Wave-based execution loop naturally handles DAG dependencies
+- [Phase 04]: Non-blocking publish with select/default prevents slow subscribers from blocking execution
+- [Phase 04]: SubscribeAll via dedicated allSubs slice enables single-channel multi-topic consumption
 
 ### Pending Todos
 
@@ -109,23 +113,20 @@ None yet.
 
 ### Blockers/Concerns
 
-**Phase 3 Complete - No Blockers**
+**Phase 4 In Progress - No Blockers**
 
-Phase 1-3 complete. All core infrastructure delivered:
-- Config type system implemented with three-tier merge (defaults -> global -> project)
-- DAG scheduler with task types, topological sort, and cycle detection
-- Dependency resolution respects FailHard/FailSoft/FailSkip failure modes
-- WorkflowManager spawns follow-up tasks (code -> review -> test) with DAG validation
-- Git worktree manager with create, merge, cleanup, list, prune operations
-- Conflict detection via merge-tree before merge prevents git state corruption
-- QAChannel for non-blocking agent-orchestrator communication
-- ParallelRunner with bounded concurrency, worktree isolation, and QA integration
-- All tests passing (8 config tests, 23 DAG tests, 8 workflow tests, 8 worktree tests, 7 QAChannel tests, 7 ParallelRunner tests with -race flag)
+Phase 1-3 complete. All core infrastructure delivered.
+Phase 4 started - Event bus foundation complete:
+- Channel-based event bus with non-blocking publish (select/default pattern)
+- SubscribeAll enables single-channel multi-topic consumption
+- ParallelRunner instrumented with event publishing at all lifecycle points
+- TaskStarted, TaskCompleted, TaskFailed, TaskMerged, and DAGProgress events
+- All tests passing (7 event bus tests, 8 orchestrator tests with -race flag)
 
-**Ready for Phase 4 (TUI)** - All execution infrastructure complete
+**Ready for Phase 4 Plan 02 (TUI Display)** - Event infrastructure complete, TUI can consume events without blocking execution
 
 ## Session Continuity
 
 Last session: 2026-02-10
-Stopped at: Completed 03-03-PLAN.md (Parallel runner) - Phase 3 complete
+Stopped at: Completed 04-01-PLAN.md (Event bus and ParallelRunner instrumentation)
 Resume file: None
