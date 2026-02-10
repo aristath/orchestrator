@@ -53,11 +53,18 @@ func NewSQLiteStore(ctx context.Context, dbPath string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("failed to create parent directories: %w", err)
 	}
 
-	// Open SQLite with connection string for WAL mode, foreign keys, busy timeout
-	connStr := fmt.Sprintf("file:%s?_foreign_keys=ON&_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL", dbPath)
+	// Open SQLite with connection string for WAL mode, busy timeout
+	// Note: modernc.org/sqlite doesn't support _foreign_keys in connection string
+	connStr := fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL", dbPath)
 	db, err := sql.Open("sqlite", connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
+	}
+
+	// Enable foreign keys via PRAGMA (required for modernc.org/sqlite)
+	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
 	}
 
 	// Allow 2 connections: one for primary queries, one for subqueries (prevents deadlock in ListTasks)
@@ -78,10 +85,17 @@ func NewSQLiteStore(ctx context.Context, dbPath string) (*SQLiteStore, error) {
 // Uses a shared cache so multiple connections see the same database.
 func NewMemoryStore(ctx context.Context) (*SQLiteStore, error) {
 	// Use file::memory:?cache=shared to allow multiple connections to the same in-memory DB
-	connStr := "file::memory:?mode=memory&cache=shared&_foreign_keys=ON"
+	// Note: modernc.org/sqlite doesn't support _foreign_keys in connection string
+	connStr := "file::memory:?mode=memory&cache=shared"
 	db, err := sql.Open("sqlite", connStr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open memory database: %w", err)
+	}
+
+	// Enable foreign keys via PRAGMA (required for modernc.org/sqlite)
+	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to enable foreign keys: %w", err)
 	}
 
 	// Allow 2 connections for subquery parallelism

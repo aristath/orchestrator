@@ -357,3 +357,302 @@ func TestTaskErrorPersistence(t *testing.T) {
 		t.Errorf("Status should be Failed, got %v", retrieved.Status)
 	}
 }
+
+// Session tests
+
+func TestSaveAndGetSession(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	// Create a task first (required by foreign key)
+	task := &scheduler.Task{
+		ID:          "session-task-1",
+		Name:        "Session Task",
+		AgentRole:   "coder",
+		Prompt:      "Test session",
+		Status:      scheduler.TaskPending,
+		FailureMode: scheduler.FailHard,
+	}
+	if err := store.SaveTask(ctx, task); err != nil {
+		t.Fatalf("failed to save task: %v", err)
+	}
+
+	// Save session
+	if err := store.SaveSession(ctx, "session-task-1", "session-abc-123", "claude"); err != nil {
+		t.Fatalf("failed to save session: %v", err)
+	}
+
+	// Get session
+	sessionID, backendType, err := store.GetSession(ctx, "session-task-1")
+	if err != nil {
+		t.Fatalf("failed to get session: %v", err)
+	}
+
+	// Verify session data
+	if sessionID != "session-abc-123" {
+		t.Errorf("SessionID mismatch: got %s, want session-abc-123", sessionID)
+	}
+	if backendType != "claude" {
+		t.Errorf("BackendType mismatch: got %s, want claude", backendType)
+	}
+}
+
+func TestSaveSessionUpsert(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	// Create a task first
+	task := &scheduler.Task{
+		ID:          "upsert-task",
+		Name:        "Upsert Task",
+		AgentRole:   "coder",
+		Prompt:      "Test upsert",
+		Status:      scheduler.TaskPending,
+		FailureMode: scheduler.FailHard,
+	}
+	if err := store.SaveTask(ctx, task); err != nil {
+		t.Fatalf("failed to save task: %v", err)
+	}
+
+	// Save session with sessionID "abc"
+	if err := store.SaveSession(ctx, "upsert-task", "abc", "claude"); err != nil {
+		t.Fatalf("failed to save initial session: %v", err)
+	}
+
+	// Save again with sessionID "def" for same task (should update)
+	if err := store.SaveSession(ctx, "upsert-task", "def", "codex"); err != nil {
+		t.Fatalf("failed to save updated session: %v", err)
+	}
+
+	// Get session and verify it was updated
+	sessionID, backendType, err := store.GetSession(ctx, "upsert-task")
+	if err != nil {
+		t.Fatalf("failed to get session: %v", err)
+	}
+
+	if sessionID != "def" {
+		t.Errorf("SessionID should be 'def' after upsert, got %s", sessionID)
+	}
+	if backendType != "codex" {
+		t.Errorf("BackendType should be 'codex' after upsert, got %s", backendType)
+	}
+}
+
+func TestGetSessionNotFound(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	// Try to get session for non-existent task
+	_, _, err := store.GetSession(ctx, "nonexistent-task")
+	if err == nil {
+		t.Fatal("expected error when getting session for non-existent task, got nil")
+	}
+
+	// Verify error wraps sql.ErrNoRows
+	if !strings.Contains(err.Error(), "no session found") {
+		t.Errorf("expected 'no session found' in error, got: %v", err)
+	}
+}
+
+func TestSessionBackendTypes(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	// Create 3 tasks with different backend types
+	backends := []struct {
+		taskID      string
+		sessionID   string
+		backendType string
+	}{
+		{"claude-task", "session-1", "claude"},
+		{"codex-task", "session-2", "codex"},
+		{"goose-task", "session-3", "goose"},
+	}
+
+	for _, b := range backends {
+		task := &scheduler.Task{
+			ID:          b.taskID,
+			Name:        "Backend Task",
+			AgentRole:   "coder",
+			Prompt:      "Test backend types",
+			Status:      scheduler.TaskPending,
+			FailureMode: scheduler.FailHard,
+		}
+		if err := store.SaveTask(ctx, task); err != nil {
+			t.Fatalf("failed to save task %s: %v", b.taskID, err)
+		}
+
+		if err := store.SaveSession(ctx, b.taskID, b.sessionID, b.backendType); err != nil {
+			t.Fatalf("failed to save session for %s: %v", b.taskID, err)
+		}
+	}
+
+	// Verify each backend type is correctly retrieved
+	for _, b := range backends {
+		sessionID, backendType, err := store.GetSession(ctx, b.taskID)
+		if err != nil {
+			t.Fatalf("failed to get session for %s: %v", b.taskID, err)
+		}
+
+		if sessionID != b.sessionID {
+			t.Errorf("SessionID mismatch for %s: got %s, want %s", b.taskID, sessionID, b.sessionID)
+		}
+		if backendType != b.backendType {
+			t.Errorf("BackendType mismatch for %s: got %s, want %s", b.taskID, backendType, b.backendType)
+		}
+	}
+}
+
+// Conversation history tests
+
+func TestSaveAndGetHistory(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	// Create a task first
+	task := &scheduler.Task{
+		ID:          "history-task",
+		Name:        "History Task",
+		AgentRole:   "coder",
+		Prompt:      "Test history",
+		Status:      scheduler.TaskPending,
+		FailureMode: scheduler.FailHard,
+	}
+	if err := store.SaveTask(ctx, task); err != nil {
+		t.Fatalf("failed to save task: %v", err)
+	}
+
+	// Save 3 messages
+	messages := []struct {
+		role    string
+		content string
+	}{
+		{"user", "Hello, can you help?"},
+		{"assistant", "Sure, I can help!"},
+		{"user", "Great, thanks!"},
+	}
+
+	for _, msg := range messages {
+		if err := store.SaveMessage(ctx, "history-task", msg.role, msg.content); err != nil {
+			t.Fatalf("failed to save message: %v", err)
+		}
+	}
+
+	// Get history
+	history, err := store.GetHistory(ctx, "history-task")
+	if err != nil {
+		t.Fatalf("failed to get history: %v", err)
+	}
+
+	// Verify 3 turns in correct order
+	if len(history) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(history))
+	}
+
+	for i, msg := range messages {
+		if history[i].Role != msg.role {
+			t.Errorf("Message %d role mismatch: got %s, want %s", i, history[i].Role, msg.role)
+		}
+		if history[i].Content != msg.content {
+			t.Errorf("Message %d content mismatch: got %s, want %s", i, history[i].Content, msg.content)
+		}
+	}
+}
+
+func TestGetHistoryEmpty(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	// Create a task with no messages
+	task := &scheduler.Task{
+		ID:          "empty-history-task",
+		Name:        "Empty History Task",
+		AgentRole:   "coder",
+		Prompt:      "Test empty history",
+		Status:      scheduler.TaskPending,
+		FailureMode: scheduler.FailHard,
+	}
+	if err := store.SaveTask(ctx, task); err != nil {
+		t.Fatalf("failed to save task: %v", err)
+	}
+
+	// Get history (should be empty, not nil)
+	history, err := store.GetHistory(ctx, "empty-history-task")
+	if err != nil {
+		t.Fatalf("failed to get empty history: %v", err)
+	}
+
+	// Verify empty slice (not nil) and no error
+	if history == nil {
+		t.Error("expected empty slice, got nil")
+	}
+	if len(history) != 0 {
+		t.Errorf("expected 0 messages, got %d", len(history))
+	}
+}
+
+func TestGetHistoryOrdering(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	// Create a task first
+	task := &scheduler.Task{
+		ID:          "ordering-task",
+		Name:        "Ordering Task",
+		AgentRole:   "coder",
+		Prompt:      "Test ordering",
+		Status:      scheduler.TaskPending,
+		FailureMode: scheduler.FailHard,
+	}
+	if err := store.SaveTask(ctx, task); err != nil {
+		t.Fatalf("failed to save task: %v", err)
+	}
+
+	// Save 5 messages rapidly (tests id-based tiebreaker for same-timestamp entries)
+	messages := []string{"msg1", "msg2", "msg3", "msg4", "msg5"}
+	for _, content := range messages {
+		if err := store.SaveMessage(ctx, "ordering-task", "user", content); err != nil {
+			t.Fatalf("failed to save message: %v", err)
+		}
+	}
+
+	// Get history
+	history, err := store.GetHistory(ctx, "ordering-task")
+	if err != nil {
+		t.Fatalf("failed to get history: %v", err)
+	}
+
+	// Verify order matches insertion order
+	if len(history) != 5 {
+		t.Fatalf("expected 5 messages, got %d", len(history))
+	}
+
+	for i, content := range messages {
+		if history[i].Content != content {
+			t.Errorf("Message %d out of order: got %s, want %s", i, history[i].Content, content)
+		}
+	}
+}
+
+func TestConversationHistoryForeignKey(t *testing.T) {
+	store := testStore(t)
+	ctx := context.Background()
+
+	// Verify the task doesn't exist first
+	_, err := store.GetTask(ctx, "nonexistent-task")
+	if err == nil {
+		t.Fatal("nonexistent-task should not exist")
+	}
+
+	// Attempt to save message for non-existent task_id
+	// This should fail due to foreign key constraint
+	err = store.SaveMessage(ctx, "nonexistent-task", "user", "Hello")
+
+	// Verify we get an error (foreign key constraint violation)
+	if err == nil {
+		t.Fatal("expected error when saving message for non-existent task, got nil")
+	}
+
+	// Log the error for debugging
+	t.Logf("Got expected error: %v", err)
+}
