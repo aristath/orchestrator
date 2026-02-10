@@ -10,29 +10,29 @@ See: .planning/PROJECT.md (updated 2026-02-10)
 ## Current Position
 
 Phase: 2 of 6 (Agent Definitions and DAG Scheduler)
-Plan: 1 of 5 in current phase
+Plan: 2 of 5 in current phase
 Status: In progress
-Last activity: 2026-02-10 -- Completed 02-01-PLAN.md (Configuration system for providers, agents, and workflows)
+Last activity: 2026-02-10 -- Completed 02-02-PLAN.md (DAG scheduler core with task types and cycle detection)
 
 Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
-- Average duration: 167 seconds
-- Total execution time: 0.28 hours
+- Total plans completed: 7
+- Average duration: 164 seconds
+- Total execution time: 0.32 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01 | 5 | 910s | 182s |
-| 02 | 1 | 97s | 97s |
+| 02 | 2 | 259s | 130s |
 
 **Recent Trend:**
-- Last 5 plans: 142s, 100s, 238s, 334s, 97s (avg: 182s)
-- Trend: Phase 2 starting efficiently
+- Last 5 plans: 100s, 238s, 334s, 97s, 162s (avg: 186s)
+- Trend: Phase 2 maintaining efficient pace
 
 *Updated after each plan completion*
 
@@ -44,6 +44,7 @@ Progress: [█████░░░░░] 50%
 | Phase 01 P03 | 238s | 2 tasks | 2 files |
 | Phase 01 P05 | 334s | 2 tasks | 3 files |
 | Phase 02 P01 | 97 | 2 tasks | 4 files |
+| Phase 02 P02 | 162 | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,10 @@ Recent decisions affecting current work:
 - [02-01]: Project config highest precedence (defaults -> global -> project) matches user expectations
 - [02-01]: Missing config files not errors enables zero-config usage with graceful degradation
 - [02-01]: Zero external config libraries using stdlib encoding/json for lean binary
+- [02-02]: Use gammazero/toposort for cycle detection via Kahn's algorithm
+- [02-02]: FailureMode controls dependency resolution: FailHard blocks, FailSoft allows, FailSkip treats as success
+- [02-02]: Validate all dependencies exist before topological sort
+- [02-02]: Track disconnected components by verifying sorted result contains all tasks
 
 ### Pending Todos
 
@@ -83,14 +88,14 @@ None yet.
 
 **Phase 2 In Progress - No Blockers**
 
-Phase 1 complete. Phase 2 Plan 01 complete:
-- Config type system implemented with OrchestratorConfig, ProviderConfig, AgentConfig, WorkflowConfig
-- Config loader with three-tier merge (defaults -> global -> project) working
-- Default config includes 3 providers, 4 agents, 1 workflow
-- All tests passing (8 test cases covering merge, errors, missing files)
+Phase 1 complete. Phase 2 Plans 01-02 complete:
+- Config type system implemented with three-tier merge (defaults -> global -> project)
+- DAG scheduler with task types, topological sort, and cycle detection
+- Dependency resolution respects FailHard/FailSoft/FailSkip failure modes
+- All tests passing (8 config tests, 23 DAG tests with -race flag)
 
 ## Session Continuity
 
 Last session: 2026-02-10
-Stopped at: Completed 02-01-PLAN.md (Configuration system)
+Stopped at: Completed 02-02-PLAN.md (DAG scheduler core)
 Resume file: None
