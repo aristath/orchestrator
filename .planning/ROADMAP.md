@@ -13,7 +13,7 @@ This roadmap delivers a standalone multi-agent orchestrator for agentic coding, 
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Subprocess Management and Backend Abstraction** - Unified Backend interface with subprocess adapters for Claude Code, Codex, and Goose, solving pipe deadlocks and process lifecycle
-- [ ] **Phase 2: Agent Definitions and DAG Scheduler** - YAML agent config, DAG construction with topological sort, resource locking, failure classification, and workflow definitions
+- [ ] **Phase 2: Agent Definitions and DAG Scheduler** - JSON agent config, DAG construction with topological sort, resource locking, failure classification, and workflow definitions
 - [ ] **Phase 3: Parallel Execution with Git Isolation** - Bounded concurrent agents in isolated git worktrees with merge-back and orchestrator Q&A
 - [ ] **Phase 4: Event Bus and TUI Integration** - Split-pane Bubble Tea TUI with per-agent viewports, vim navigation, status indicators, and DAG progress
 - [ ] **Phase 5: State Management and Session Persistence** - SQLite persistence for task state, conversation history, checkpointing, and session ID continuity
@@ -44,7 +44,7 @@ Plans:
 - [x] 01-05-PLAN.md — Integration stress tests (zombie prevention, deadlock prevention, signal propagation, factory)
 
 ### Phase 2: Agent Definitions and DAG Scheduler
-**Goal**: Users can define agent roles via YAML config, and the orchestrator can decompose a plan into a validated DAG of tasks with dependency resolution, resource locking, and failure classification
+**Goal**: Users can define agent roles via JSON config, and the orchestrator can decompose a plan into a validated DAG of tasks with dependency resolution, resource locking, and failure classification
 **Depends on**: Phase 1
 **Requirements**: AGNT-01, AGNT-02, AGNT-03, AGNT-04, AGNT-05, AGNT-06, CONF-01, CONF-02, CONF-03, SCHED-01, SCHED-02, SCHED-03, SCHED-04, SCHED-05, SCHED-06, WORK-01, WORK-02, WORK-03
 **Key Risks**: DAG cycle detection must be bulletproof — a cycle causes infinite blocking. File-level resource locking adds complexity but is essential before parallel execution. Workflow config (code->review->test) must compose cleanly with DAG scheduling.
@@ -58,12 +58,14 @@ Plans:
   6. File-level resource locks prevent scheduling two tasks that write the same file concurrently
   7. Global config (`~/.orchestrator/config.json`) and per-project config (`.orchestrator/config.json`) are loaded and merged — project overrides global
   8. Predefined workflows (e.g., code -> review -> test) can be configured and the orchestrator spawns follow-up agents per workflow config
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
-- [ ] 02-03: TBD
+- [ ] 02-01-PLAN.md — Config types (ProviderConfig, AgentConfig, WorkflowConfig), default definitions, and config loader with global/project merge
+- [ ] 02-02-PLAN.md — DAG core: task types, graph construction, topological sort with cycle detection, dependency resolution
+- [ ] 02-03-PLAN.md — Resource lock manager (per-file keyed mutex) and task executor bridging DAG to backends
+- [ ] 02-04-PLAN.md — Workflow engine: follow-up task spawning after completion per workflow config
+- [ ] 02-05-PLAN.md — Integration tests validating full pipeline (config -> DAG -> execute -> workflow)
 
 ### Phase 3: Parallel Execution with Git Isolation
 **Goal**: Multiple agents execute tasks concurrently in isolated git worktrees, with results merged back and the orchestrator answering satellite questions in real time
@@ -139,7 +141,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Subprocess Management and Backend Abstraction | 5/5 | ✓ Complete | 2026-02-10 |
-| 2. Agent Definitions and DAG Scheduler | 0/TBD | Not started | - |
+| 2. Agent Definitions and DAG Scheduler | 0/5 | Not started | - |
 | 3. Parallel Execution with Git Isolation | 0/TBD | Not started | - |
 | 4. Event Bus and TUI Integration | 0/TBD | Not started | - |
 | 5. State Management and Session Persistence | 0/TBD | Not started | - |
