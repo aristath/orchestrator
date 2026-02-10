@@ -90,7 +90,7 @@ func sendWithRetry(ctx context.Context, b backend.Backend, msg backend.Message, 
 		}
 
 		// Execute through circuit breaker
-		result, err := cb.Execute(func() (interface{}, error) {
+		result, err := cb.Execute(func() (any, error) {
 			return b.Send(ctx, msg)
 		})
 

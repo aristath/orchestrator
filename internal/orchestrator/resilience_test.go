@@ -15,7 +15,7 @@ import (
 // retryTestBackend is a mock backend for testing retry behavior.
 type retryTestBackend struct {
 	mu        sync.Mutex
-	responses []interface{} // Each entry is either backend.Response or error
+	responses []any // Each entry is either backend.Response or error
 	callCount int
 }
 
@@ -58,7 +58,7 @@ func (b *retryTestBackend) CallCount() int {
 func TestSendWithRetry_TransientThenSuccess(t *testing.T) {
 	// Backend fails twice, then succeeds
 	testBackend := &retryTestBackend{
-		responses: []interface{}{
+		responses: []any{
 			fmt.Errorf("transient error 1"),
 			fmt.Errorf("transient error 2"),
 			backend.Response{Content: "success", SessionID: "test"},
@@ -94,7 +94,7 @@ func TestSendWithRetry_TransientThenSuccess(t *testing.T) {
 func TestSendWithRetry_PermanentFailure_CircuitOpen(t *testing.T) {
 	// Backend always fails
 	testBackend := &retryTestBackend{
-		responses: make([]interface{}, 20), // More than enough for circuit to open
+		responses: make([]any, 20), // More than enough for circuit to open
 	}
 	for i := range testBackend.responses {
 		testBackend.responses[i] = fmt.Errorf("persistent error %d", i+1)
@@ -114,7 +114,7 @@ func TestSendWithRetry_PermanentFailure_CircuitOpen(t *testing.T) {
 
 	// Make multiple requests to trip the circuit breaker
 	// Circuit trips after 5 consecutive failures
-	for i := 0; i < 7; i++ {
+	for i := range 7 {
 		_, err := sendWithRetry(ctx, testBackend, backend.Message{Content: "test"}, cb, retryCfg)
 		if err == nil {
 			t.Errorf("call %d: expected error, got success", i+1)
@@ -141,7 +141,7 @@ func TestSendWithRetry_PermanentFailure_CircuitOpen(t *testing.T) {
 func TestSendWithRetry_ContextCancelled_StopsRetry(t *testing.T) {
 	// Backend always fails
 	testBackend := &retryTestBackend{
-		responses: make([]interface{}, 100),
+		responses: make([]any, 100),
 	}
 	for i := range testBackend.responses {
 		testBackend.responses[i] = fmt.Errorf("error %d", i+1)
@@ -213,7 +213,7 @@ func TestCircuitBreaker_UserCancellationNotCounted(t *testing.T) {
 
 	// Create backend that returns context.Canceled
 	testBackend := &retryTestBackend{
-		responses: []interface{}{
+		responses: []any{
 			context.Canceled,
 		},
 	}
@@ -232,7 +232,7 @@ func TestCircuitBreaker_UserCancellationNotCounted(t *testing.T) {
 
 	// Make 5 requests with cancelled context
 	// Circuit should NOT open because user cancellation is not a backend failure
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		testBackend.mu.Lock()
 		testBackend.callCount = 0 // Reset for each test
 		testBackend.mu.Unlock()
