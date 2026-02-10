@@ -14,6 +14,7 @@ import (
 
 	"github.com/aristath/orchestrator/internal/backend"
 	"github.com/aristath/orchestrator/internal/events"
+	"github.com/aristath/orchestrator/internal/persistence"
 	"github.com/aristath/orchestrator/internal/scheduler"
 	"github.com/aristath/orchestrator/internal/worktree"
 )
@@ -919,4 +920,477 @@ func TestEventBusIntegration(t *testing.T) {
 
 	t.Logf("Received events: %d TaskStarted, %d TaskCompleted, %d DAGProgress",
 		taskStartedCount, taskCompletedCount, dagProgressCount)
+}
+
+// testStoreForRunner creates an in-memory persistence Store for testing.
+func testStoreForRunner(t *testing.T) persistence.Store {
+	t.Helper()
+
+	ctx := context.Background()
+	store, err := persistence.NewMemoryStore(ctx)
+	if err != nil {
+		t.Fatalf("failed to create memory store: %v", err)
+	}
+
+	t.Cleanup(func() {
+		store.Close()
+	})
+
+	return store
+}
+
+// TestCheckpointOnTaskCompletion verifies task state is checkpointed on completion.
+func TestCheckpointOnTaskCompletion(t *testing.T) {
+	repoPath := setupTestRepo(t)
+	store := testStoreForRunner(t)
+
+	// Create DAG with 1 task
+	dag := scheduler.NewDAG()
+	task := &scheduler.Task{
+		ID:          "task-1",
+		Name:        "Task 1",
+		AgentRole:   "coder",
+		Prompt:      "Do work",
+		DependsOn:   []string{},
+		WritesFiles: []string{},
+		Status:      scheduler.TaskPending,
+		FailureMode: scheduler.FailHard,
+	}
+
+	if err := dag.AddTask(task); err != nil {
+		t.Fatalf("failed to add task: %v", err)
+	}
+
+	wtMgr := worktree.NewWorktreeManager(worktree.WorktreeManagerConfig{
+		RepoPath:   repoPath,
+		BaseBranch: "main",
+	})
+
+	// Mock backend that returns a canned response with session ID
+	factory := newMockBackendFactory()
+	factory.onSend = func(ctx context.Context, msg backend.Message, workDir string) (backend.Response, error) {
+		return backend.Response{
+			Content:   "Task completed successfully",
+			SessionID: "test-session-123",
+		}, nil
+	}
+
+	lockMgr := scheduler.NewResourceLockManager()
+	cfg := ParallelRunnerConfig{
+		WorktreeManager: wtMgr,
+		BackendFactory:  factory.factory,
+		Store:           store,
+		BackendConfigs: map[string]backend.Config{
+			"coder": {Type: "claude"},
+		},
+	}
+
+	runner := NewParallelRunner(cfg, dag, lockMgr)
+
+	// Run
+	ctx := context.Background()
+	results, err := runner.Run(ctx)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	if !results[0].Success {
+		t.Errorf("task failed: %v", results[0].Error)
+	}
+
+	// Verify task status in store
+	persistedTask, err := store.GetTask(ctx, "task-1")
+	if err != nil {
+		t.Fatalf("failed to get task from store: %v", err)
+	}
+
+	if persistedTask.Status != scheduler.TaskCompleted {
+		t.Errorf("expected status TaskCompleted, got %v", persistedTask.Status)
+	}
+
+	if persistedTask.Result != "Task completed successfully" {
+		t.Errorf("expected result to match response content, got %q", persistedTask.Result)
+	}
+
+	// Verify session in store
+	sessionID, backendType, err := store.GetSession(ctx, "task-1")
+	if err != nil {
+		t.Fatalf("failed to get session: %v", err)
+	}
+
+	if sessionID != "mock-session-task-1" {
+		t.Errorf("expected session ID 'mock-session-task-1', got %q", sessionID)
+	}
+
+	if backendType != "claude" {
+		t.Errorf("expected backend type 'claude', got %q", backendType)
+	}
+
+	// Verify conversation history
+	history, err := store.GetHistory(ctx, "task-1")
+	if err != nil {
+		t.Fatalf("failed to get history: %v", err)
+	}
+
+	if len(history) != 2 {
+		t.Fatalf("expected 2 messages in history, got %d", len(history))
+	}
+
+	if history[0].Role != "user" || history[0].Content != "Do work" {
+		t.Errorf("first message should be user prompt, got role=%q content=%q", history[0].Role, history[0].Content)
+	}
+
+	if history[1].Role != "assistant" || history[1].Content != "Task completed successfully" {
+		t.Errorf("second message should be assistant response, got role=%q content=%q", history[1].Role, history[1].Content)
+	}
+}
+
+// TestCheckpointOnTaskFailure verifies task state is checkpointed on failure.
+func TestCheckpointOnTaskFailure(t *testing.T) {
+	repoPath := setupTestRepo(t)
+	store := testStoreForRunner(t)
+
+	// Create DAG with 1 task
+	dag := scheduler.NewDAG()
+	task := &scheduler.Task{
+		ID:          "task-fail",
+		Name:        "Task Fail",
+		AgentRole:   "coder",
+		Prompt:      "Do work",
+		DependsOn:   []string{},
+		WritesFiles: []string{},
+		Status:      scheduler.TaskPending,
+		FailureMode: scheduler.FailHard,
+	}
+
+	if err := dag.AddTask(task); err != nil {
+		t.Fatalf("failed to add task: %v", err)
+	}
+
+	wtMgr := worktree.NewWorktreeManager(worktree.WorktreeManagerConfig{
+		RepoPath:   repoPath,
+		BaseBranch: "main",
+	})
+
+	// Mock backend that returns an error
+	factory := newMockBackendFactory()
+	factory.onSend = func(ctx context.Context, msg backend.Message, workDir string) (backend.Response, error) {
+		return backend.Response{}, fmt.Errorf("simulated backend error")
+	}
+
+	lockMgr := scheduler.NewResourceLockManager()
+	cfg := ParallelRunnerConfig{
+		WorktreeManager: wtMgr,
+		BackendFactory:  factory.factory,
+		Store:           store,
+	}
+
+	runner := NewParallelRunner(cfg, dag, lockMgr)
+
+	// Run
+	ctx := context.Background()
+	results, err := runner.Run(ctx)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	if results[0].Success {
+		t.Error("expected task to fail")
+	}
+
+	// Verify task status in store
+	persistedTask, err := store.GetTask(ctx, "task-fail")
+	if err != nil {
+		t.Fatalf("failed to get task from store: %v", err)
+	}
+
+	if persistedTask.Status != scheduler.TaskFailed {
+		t.Errorf("expected status TaskFailed, got %v", persistedTask.Status)
+	}
+
+	if persistedTask.Error == nil {
+		t.Error("expected error to be persisted")
+	}
+
+	if !strings.Contains(persistedTask.Error.Error(), "simulated backend error") {
+		t.Errorf("expected error to contain 'simulated backend error', got %q", persistedTask.Error.Error())
+	}
+}
+
+// TestCheckpointNilStoreNoError verifies nil Store is handled gracefully.
+func TestCheckpointNilStoreNoError(t *testing.T) {
+	repoPath := setupTestRepo(t)
+
+	// Create DAG with 1 task
+	dag := scheduler.NewDAG()
+	task := &scheduler.Task{
+		ID:          "task-no-store",
+		Name:        "Task No Store",
+		AgentRole:   "coder",
+		Prompt:      "Do work",
+		DependsOn:   []string{},
+		WritesFiles: []string{},
+		Status:      scheduler.TaskPending,
+		FailureMode: scheduler.FailHard,
+	}
+
+	if err := dag.AddTask(task); err != nil {
+		t.Fatalf("failed to add task: %v", err)
+	}
+
+	wtMgr := worktree.NewWorktreeManager(worktree.WorktreeManagerConfig{
+		RepoPath:   repoPath,
+		BaseBranch: "main",
+	})
+
+	factory := newMockBackendFactory()
+	factory.onSend = func(ctx context.Context, msg backend.Message, workDir string) (backend.Response, error) {
+		return backend.Response{Content: "done", SessionID: "mock"}, nil
+	}
+
+	lockMgr := scheduler.NewResourceLockManager()
+	cfg := ParallelRunnerConfig{
+		WorktreeManager: wtMgr,
+		BackendFactory:  factory.factory,
+		Store:           nil, // No store
+	}
+
+	runner := NewParallelRunner(cfg, dag, lockMgr)
+
+	// Run should complete without panic or error
+	ctx := context.Background()
+	results, err := runner.Run(ctx)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	if !results[0].Success {
+		t.Errorf("task failed: %v", results[0].Error)
+	}
+}
+
+// TestResumeSkipsCompletedTasks verifies Resume skips completed tasks and only executes pending ones.
+func TestResumeSkipsCompletedTasks(t *testing.T) {
+	repoPath := setupTestRepo(t)
+	store := testStoreForRunner(t)
+	ctx := context.Background()
+
+	// Persist 3 tasks: task-1 and task-2 completed, task-3 pending (depends on 1 and 2)
+	task1 := &scheduler.Task{
+		ID:          "task-1",
+		Name:        "Task 1",
+		AgentRole:   "coder",
+		Prompt:      "Work 1",
+		DependsOn:   []string{},
+		WritesFiles: []string{},
+		Status:      scheduler.TaskCompleted,
+		FailureMode: scheduler.FailHard,
+		Result:      "Result 1",
+	}
+
+	task2 := &scheduler.Task{
+		ID:          "task-2",
+		Name:        "Task 2",
+		AgentRole:   "coder",
+		Prompt:      "Work 2",
+		DependsOn:   []string{},
+		WritesFiles: []string{},
+		Status:      scheduler.TaskCompleted,
+		FailureMode: scheduler.FailHard,
+		Result:      "Result 2",
+	}
+
+	task3 := &scheduler.Task{
+		ID:          "task-3",
+		Name:        "Task 3",
+		AgentRole:   "coder",
+		Prompt:      "Work 3",
+		DependsOn:   []string{"task-1", "task-2"},
+		WritesFiles: []string{},
+		Status:      scheduler.TaskPending,
+		FailureMode: scheduler.FailHard,
+	}
+
+	// Save tasks to store
+	if err := store.SaveTask(ctx, task1); err != nil {
+		t.Fatalf("failed to save task-1: %v", err)
+	}
+	if err := store.SaveTask(ctx, task2); err != nil {
+		t.Fatalf("failed to save task-2: %v", err)
+	}
+	if err := store.SaveTask(ctx, task3); err != nil {
+		t.Fatalf("failed to save task-3: %v", err)
+	}
+
+	wtMgr := worktree.NewWorktreeManager(worktree.WorktreeManagerConfig{
+		RepoPath:   repoPath,
+		BaseBranch: "main",
+	})
+
+	// Track which tasks the backend receives
+	var executedTasks []string
+	var mu sync.Mutex
+
+	factory := newMockBackendFactory()
+	factory.onSend = func(ctx context.Context, msg backend.Message, workDir string) (backend.Response, error) {
+		taskID := filepath.Base(workDir)
+		mu.Lock()
+		executedTasks = append(executedTasks, taskID)
+		mu.Unlock()
+
+		return backend.Response{Content: "done", SessionID: "mock"}, nil
+	}
+
+	lockMgr := scheduler.NewResourceLockManager()
+	cfg := ParallelRunnerConfig{
+		WorktreeManager: wtMgr,
+		BackendFactory:  factory.factory,
+		Store:           store,
+	}
+
+	// Create runner with empty DAG (Resume will populate it)
+	dag := scheduler.NewDAG()
+	runner := NewParallelRunner(cfg, dag, lockMgr)
+
+	// Resume
+	results, err := runner.Resume(ctx)
+	if err != nil {
+		t.Fatalf("Resume failed: %v", err)
+	}
+
+	// Should only execute task-3
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(executedTasks) != 1 {
+		t.Errorf("expected 1 task executed, got %d: %v", len(executedTasks), executedTasks)
+	}
+
+	if len(executedTasks) > 0 && executedTasks[0] != "task-3" {
+		t.Errorf("expected task-3 to be executed, got %q", executedTasks[0])
+	}
+
+	// Verify task-3 is now completed in store
+	persistedTask3, err := store.GetTask(ctx, "task-3")
+	if err != nil {
+		t.Fatalf("failed to get task-3 from store: %v", err)
+	}
+
+	if persistedTask3.Status != scheduler.TaskCompleted {
+		t.Errorf("expected task-3 to be completed, got status %v", persistedTask3.Status)
+	}
+
+	// Verify results
+	if len(results) != 1 {
+		t.Errorf("expected 1 result, got %d", len(results))
+	}
+}
+
+// TestResumeRestoresSessionID verifies session IDs are persisted and retrievable.
+func TestResumeRestoresSessionID(t *testing.T) {
+	repoPath := setupTestRepo(t)
+	store := testStoreForRunner(t)
+	ctx := context.Background()
+
+	// Persist task-1 as completed with a session
+	task1 := &scheduler.Task{
+		ID:          "task-1",
+		Name:        "Task 1",
+		AgentRole:   "coder",
+		Prompt:      "Work 1",
+		DependsOn:   []string{},
+		WritesFiles: []string{},
+		Status:      scheduler.TaskCompleted,
+		FailureMode: scheduler.FailHard,
+		Result:      "Result 1",
+	}
+
+	// Persist task-2 as pending (depends on task-1)
+	task2 := &scheduler.Task{
+		ID:          "task-2",
+		Name:        "Task 2",
+		AgentRole:   "coder",
+		Prompt:      "Work 2",
+		DependsOn:   []string{"task-1"},
+		WritesFiles: []string{},
+		Status:      scheduler.TaskPending,
+		FailureMode: scheduler.FailHard,
+	}
+
+	// Save tasks
+	if err := store.SaveTask(ctx, task1); err != nil {
+		t.Fatalf("failed to save task-1: %v", err)
+	}
+	if err := store.SaveTask(ctx, task2); err != nil {
+		t.Fatalf("failed to save task-2: %v", err)
+	}
+
+	// Save session for task-1
+	if err := store.SaveSession(ctx, "task-1", "session-abc-123", "claude"); err != nil {
+		t.Fatalf("failed to save session: %v", err)
+	}
+
+	wtMgr := worktree.NewWorktreeManager(worktree.WorktreeManagerConfig{
+		RepoPath:   repoPath,
+		BaseBranch: "main",
+	})
+
+	factory := newMockBackendFactory()
+	factory.onSend = func(ctx context.Context, msg backend.Message, workDir string) (backend.Response, error) {
+		return backend.Response{Content: "done", SessionID: "mock"}, nil
+	}
+
+	lockMgr := scheduler.NewResourceLockManager()
+	cfg := ParallelRunnerConfig{
+		WorktreeManager: wtMgr,
+		BackendFactory:  factory.factory,
+		Store:           store,
+	}
+
+	// Create runner and resume
+	dag := scheduler.NewDAG()
+	runner := NewParallelRunner(cfg, dag, lockMgr)
+
+	results, err := runner.Resume(ctx)
+	if err != nil {
+		t.Fatalf("Resume failed: %v", err)
+	}
+
+	// Verify task-2 executed
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+
+	// Verify session was loaded into runner
+	if sessionID, ok := runner.sessions["task-1"]; !ok {
+		t.Error("expected task-1 session to be loaded")
+	} else if sessionID != "session-abc-123" {
+		t.Errorf("expected session ID 'session-abc-123', got %q", sessionID)
+	}
+
+	// Verify session is retrievable from store
+	sessionID, backendType, err := store.GetSession(ctx, "task-1")
+	if err != nil {
+		t.Fatalf("failed to retrieve session: %v", err)
+	}
+
+	if sessionID != "session-abc-123" {
+		t.Errorf("expected session ID 'session-abc-123', got %q", sessionID)
+	}
+
+	if backendType != "claude" {
+		t.Errorf("expected backend type 'claude', got %q", backendType)
+	}
 }
