@@ -34,11 +34,14 @@ Decimal phases appear between their surrounding integers in numeric order.
   5. Goose adapter supports local LLMs by passing `--model`/`--provider` for Ollama/LM Studio/llama.cpp
   6. Killing the orchestrator process (Ctrl+C or SIGTERM) kills all spawned subprocess trees with no orphaned processes remaining
   7. A stress test of 10+ sequential subprocess invocations leaves zero zombie processes
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
+- [ ] 01-01-PLAN.md — Go module, Backend interface, shared types, subprocess utilities (ProcessManager, concurrent pipe reading, process groups)
+- [ ] 01-02-PLAN.md — Claude Code adapter implementation and unit tests
+- [ ] 01-03-PLAN.md — Codex adapter implementation and unit tests
+- [ ] 01-04-PLAN.md — Goose adapter with local LLM support and unit tests
+- [ ] 01-05-PLAN.md — Integration stress tests (zombie prevention, deadlock prevention, signal propagation, factory)
 
 ### Phase 2: Agent Definitions and DAG Scheduler
 **Goal**: Users can define agent roles via YAML config, and the orchestrator can decompose a plan into a validated DAG of tasks with dependency resolution, resource locking, and failure classification
@@ -135,7 +138,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Subprocess Management and Backend Abstraction | 0/TBD | Not started | - |
+| 1. Subprocess Management and Backend Abstraction | 0/5 | Not started | - |
 | 2. Agent Definitions and DAG Scheduler | 0/TBD | Not started | - |
 | 3. Parallel Execution with Git Isolation | 0/TBD | Not started | - |
 | 4. Event Bus and TUI Integration | 0/TBD | Not started | - |
