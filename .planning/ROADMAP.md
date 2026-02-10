@@ -116,9 +116,9 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 05-01-PLAN.md — Store interface, SQLite schema, and task DAG persistence methods with tests
-- [ ] 05-02-PLAN.md — Session ID and conversation history persistence methods with tests
-- [ ] 05-03-PLAN.md — Wire Store into ParallelRunner for checkpointing and implement Resume from persisted state
+- [x] 05-01-PLAN.md — Store interface, SQLite schema, and task DAG persistence methods with tests
+- [x] 05-02-PLAN.md — Session ID and conversation history persistence methods with tests
+- [x] 05-03-PLAN.md — Wire Store into ParallelRunner for checkpointing and implement Resume from persisted state
 
 ### Phase 6: Resilience and Production Hardening
 **Goal**: Transient failures are retried automatically, persistently failing backends are circuit-broken, one agent's failure does not cascade to unrelated agents, and shutdown is graceful
@@ -147,5 +147,5 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6
 | 2. Agent Definitions and DAG Scheduler | 5/5 | ✓ Complete | 2026-02-10 |
 | 3. Parallel Execution with Git Isolation | 3/3 | ✓ Complete | 2026-02-10 |
 | 4. Event Bus and TUI Integration | 3/3 | ✓ Complete | 2026-02-10 |
-| 5. State Management and Session Persistence | 0/3 | Not started | - |
+| 5. State Management and Session Persistence | 3/3 | ✓ Complete | 2026-02-10 |
 | 6. Resilience and Production Hardening | 0/TBD | Not started | - |
