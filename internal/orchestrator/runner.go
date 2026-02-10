@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -43,6 +44,7 @@ type ParallelRunner struct {
 	dag              *scheduler.DAG
 	lockMgr          *scheduler.ResourceLockManager
 	mu               sync.Mutex
+	mergeMu          sync.Mutex // Serializes git merge operations to prevent index.lock conflicts
 	activeWorktrees  map[string]*worktree.WorktreeInfo
 	results          []TaskResult
 }
@@ -69,10 +71,16 @@ func (r *ParallelRunner) Run(ctx context.Context) ([]TaskResult, error) {
 		log.Printf("WARNING: failed to prune stale worktrees: %v", err)
 	}
 
-	// Start QA channel if configured
+	// Start QA channel with a dedicated context so we can stop it when Run exits
+	var qaCancel context.CancelFunc
 	if r.config.QAChannel != nil {
-		r.config.QAChannel.Start(ctx)
-		defer r.config.QAChannel.Stop()
+		var qaCtx context.Context
+		qaCtx, qaCancel = context.WithCancel(ctx)
+		r.config.QAChannel.Start(qaCtx)
+		defer func() {
+			qaCancel()
+			r.config.QAChannel.Stop()
+		}()
 	}
 
 	// Cleanup active worktrees on exit (catches shutdown/panic paths)
@@ -95,8 +103,9 @@ func (r *ParallelRunner) Run(ctx context.Context) ([]TaskResult, error) {
 			break
 		}
 
-		// If no eligible tasks but some are running, wait for next wave
+		// If no eligible tasks but some are running, wait briefly before rechecking
 		if len(eligible) == 0 {
+			time.Sleep(10 * time.Millisecond)
 			continue
 		}
 
@@ -209,8 +218,10 @@ func (r *ParallelRunner) executeTask(ctx context.Context, task *scheduler.Task) 
 	// Mark task completed
 	_ = r.dag.MarkCompleted(task.ID, resp.Content)
 
-	// Merge worktree back to main
+	// Merge worktree back to main (serialized to prevent git index.lock conflicts)
+	r.mergeMu.Lock()
 	mergeResult, err := r.config.WorktreeManager.Merge(wtInfo, r.config.MergeStrategy)
+	r.mergeMu.Unlock()
 	if err != nil {
 		log.Printf("ERROR: unexpected error during merge operation for task %q: %v", task.ID, err)
 		_ = r.config.WorktreeManager.ForceCleanup(wtInfo)

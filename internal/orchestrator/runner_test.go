@@ -437,69 +437,51 @@ func TestDAGWaves(t *testing.T) {
 }
 
 // TestMergeConflict_DoesNotBlockOthers verifies one task's merge conflict doesn't block others.
+// Two tasks modify the same file (shared.txt) with different content. The first to merge wins;
+// the second hits a conflict. A third task with a unique file merges cleanly regardless.
 func TestMergeConflict_DoesNotBlockOthers(t *testing.T) {
-	t.Skip("Merge conflict test requires more complex setup - core functionality verified in other tests")
 	repoPath := setupTestRepo(t)
 
-	// Create a file in main that will conflict
-	conflictFile := filepath.Join(repoPath, "conflict.txt")
-	if err := os.WriteFile(conflictFile, []byte("main content\n"), 0644); err != nil {
-		t.Fatalf("failed to write conflict file: %v", err)
+	// Create shared.txt in main so both tasks branch from it
+	sharedFile := filepath.Join(repoPath, "shared.txt")
+	if err := os.WriteFile(sharedFile, []byte("original\n"), 0644); err != nil {
+		t.Fatalf("failed to write shared file: %v", err)
 	}
 
-	cmd := exec.Command("git", "add", "conflict.txt")
+	cmd := exec.Command("git", "add", "shared.txt")
 	cmd.Dir = repoPath
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git add failed: %v (output: %s)", err, string(output))
 	}
 
-	cmd = exec.Command("git", "commit", "-m", "Add conflict.txt")
+	cmd = exec.Command("git", "commit", "-m", "Add shared.txt")
 	cmd.Dir = repoPath
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git commit failed: %v (output: %s)", err, string(output))
 	}
 
-	// Create DAG with 3 independent tasks
+	// Create DAG: writer-a and writer-b both modify shared.txt, clean-task writes unique.txt
 	dag := scheduler.NewDAG()
-	taskConflict := &scheduler.Task{
-		ID:          "task-conflict",
-		Name:        "Conflicting Task",
-		AgentRole:   "coder",
-		Prompt:      "Modify conflict.txt",
-		DependsOn:   []string{},
-		WritesFiles: []string{"conflict.txt"},
-		Status:      scheduler.TaskPending,
-		FailureMode: scheduler.FailHard,
-	}
-	taskClean1 := &scheduler.Task{
-		ID:          "task-clean1",
-		Name:        "Clean Task 1",
-		AgentRole:   "coder",
-		Prompt:      "Write clean1.txt",
-		DependsOn:   []string{},
-		WritesFiles: []string{"clean1.txt"},
-		Status:      scheduler.TaskPending,
-		FailureMode: scheduler.FailHard,
-	}
-	taskClean2 := &scheduler.Task{
-		ID:          "task-clean2",
-		Name:        "Clean Task 2",
-		AgentRole:   "coder",
-		Prompt:      "Write clean2.txt",
-		DependsOn:   []string{},
-		WritesFiles: []string{"clean2.txt"},
-		Status:      scheduler.TaskPending,
-		FailureMode: scheduler.FailHard,
-	}
-
-	if err := dag.AddTask(taskConflict); err != nil {
-		t.Fatalf("failed to add task: %v", err)
-	}
-	if err := dag.AddTask(taskClean1); err != nil {
-		t.Fatalf("failed to add task: %v", err)
-	}
-	if err := dag.AddTask(taskClean2); err != nil {
-		t.Fatalf("failed to add task: %v", err)
+	for _, task := range []*scheduler.Task{
+		{
+			ID: "writer-a", Name: "Writer A", AgentRole: "coder",
+			Prompt: "write-a", DependsOn: []string{}, WritesFiles: []string{},
+			Status: scheduler.TaskPending, FailureMode: scheduler.FailHard,
+		},
+		{
+			ID: "writer-b", Name: "Writer B", AgentRole: "coder",
+			Prompt: "write-b", DependsOn: []string{}, WritesFiles: []string{},
+			Status: scheduler.TaskPending, FailureMode: scheduler.FailHard,
+		},
+		{
+			ID: "clean-task", Name: "Clean Task", AgentRole: "coder",
+			Prompt: "write-clean", DependsOn: []string{}, WritesFiles: []string{},
+			Status: scheduler.TaskPending, FailureMode: scheduler.FailHard,
+		},
+	} {
+		if err := dag.AddTask(task); err != nil {
+			t.Fatalf("failed to add task: %v", err)
+		}
 	}
 
 	wtMgr := worktree.NewWorktreeManager(worktree.WorktreeManagerConfig{
@@ -509,17 +491,18 @@ func TestMergeConflict_DoesNotBlockOthers(t *testing.T) {
 
 	factory := newMockBackendFactory()
 	factory.onSend = func(ctx context.Context, msg backend.Message, workDir string) (backend.Response, error) {
-		var filename string
-		if strings.Contains(msg.Content, "conflict.txt") {
-			filename = "conflict.txt"
-		} else if strings.Contains(msg.Content, "clean1") {
-			filename = "clean1.txt"
-		} else {
-			filename = "clean2.txt"
+		var filename, content string
+		switch {
+		case strings.Contains(msg.Content, "write-a"):
+			filename, content = "shared.txt", "version A\n"
+		case strings.Contains(msg.Content, "write-b"):
+			filename, content = "shared.txt", "version B\n"
+		default:
+			filename, content = "unique.txt", "unique content\n"
 		}
 
 		filePath := filepath.Join(workDir, filename)
-		if err := os.WriteFile(filePath, []byte(filename+" content\n"), 0644); err != nil {
+		if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
 			return backend.Response{}, err
 		}
 
@@ -540,8 +523,10 @@ func TestMergeConflict_DoesNotBlockOthers(t *testing.T) {
 
 	lockMgr := scheduler.NewResourceLockManager()
 	cfg := ParallelRunnerConfig{
-		WorktreeManager: wtMgr,
-		BackendFactory:  factory.factory,
+		ConcurrencyLimit: 4,
+		WorktreeManager:  wtMgr,
+		MergeStrategy:    worktree.MergeOrt,
+		BackendFactory:   factory.factory,
 	}
 
 	runner := NewParallelRunner(cfg, dag, lockMgr)
@@ -557,31 +542,35 @@ func TestMergeConflict_DoesNotBlockOthers(t *testing.T) {
 		t.Fatalf("expected 3 results, got %d", len(results))
 	}
 
-	// Verify clean tasks succeeded
-	successCount := 0
+	// Count outcomes
+	mergedCount := 0
 	conflictCount := 0
 
 	for _, result := range results {
-		if result.TaskID == "task-clean1" || result.TaskID == "task-clean2" {
+		if result.TaskID == "clean-task" {
 			if !result.Success || result.MergeResult == nil || !result.MergeResult.Merged {
-				t.Errorf("clean task %q should have succeeded and merged", result.TaskID)
+				t.Errorf("clean-task should have succeeded and merged")
 			}
-			successCount++
+			mergedCount++
 		}
-		if result.TaskID == "task-conflict" {
-			if result.Success && result.MergeResult != nil && !result.MergeResult.Merged {
-				// Task succeeded but merge failed - expected
+		if result.TaskID == "writer-a" || result.TaskID == "writer-b" {
+			if result.MergeResult != nil && result.MergeResult.Merged {
+				mergedCount++
+			} else {
 				conflictCount++
 			}
 		}
 	}
 
-	if successCount != 2 {
-		t.Errorf("expected 2 successful clean tasks, got %d", successCount)
+	// One writer merges first (clean), the other conflicts. Clean task always merges.
+	if mergedCount < 2 {
+		t.Errorf("expected at least 2 merged tasks (1 writer + clean), got %d", mergedCount)
 	}
-	if conflictCount != 1 {
-		t.Errorf("expected 1 conflict task, got %d", conflictCount)
+	if conflictCount < 1 {
+		t.Errorf("expected at least 1 conflict (second writer), got %d", conflictCount)
 	}
+
+	t.Logf("Results: %d merged, %d conflicted", mergedCount, conflictCount)
 }
 
 // TestQAChannel_IntegratedWithRunner verifies QA channel works during task execution.
