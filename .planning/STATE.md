@@ -10,18 +10,18 @@ See: .planning/PROJECT.md (updated 2026-02-10)
 ## Current Position
 
 Phase: 4 of 6 (Event Bus and TUI Integration)
-Plan: 1 of 3 in current phase
+Plan: 2 of 3 in current phase
 Status: In progress
-Last activity: 2026-02-10 -- Completed 04-01-PLAN.md (Event bus and ParallelRunner instrumentation)
+Last activity: 2026-02-10 -- Completed 04-02-PLAN.md (Bubble Tea TUI with split-pane layout)
 
-Progress: [████------] 33%
+Progress: [█████-----] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 12
-- Average duration: 268 seconds
-- Total execution time: 0.89 hours
+- Total plans completed: 13
+- Average duration: 262 seconds
+- Total execution time: 0.95 hours
 
 **By Phase:**
 
@@ -30,11 +30,11 @@ Progress: [████------] 33%
 | 01 | 5 | 910s | 182s |
 | 02 | 3 | 405s | 135s |
 | 03 | 3 | 1706s | 569s |
-| 04 | 1 | 224s | 224s |
+| 04 | 2 | 454s | 227s |
 
 **Recent Trend:**
-- Last 5 plans: 144s, 228s, 1334s, 224s (avg: 482s)
-- Trend: Phase 04-01 back to normal duration after Phase 3-03 spike
+- Last 5 plans: 228s, 1334s, 224s, 230s (avg: 504s)
+- Trend: Phase 04 maintaining consistent ~227s average duration
 
 *Updated after each plan completion*
 
@@ -52,6 +52,7 @@ Progress: [████------] 33%
 | Phase 03 P01 | 228s | 2 tasks | 3 files |
 | Phase 03 P03 | 1334s | 2 tasks | 3 files |
 | Phase 04 P01 | 224 | 2 tasks | 5 files |
+| Phase 04 P02 | 230 | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -106,6 +107,10 @@ Recent decisions affecting current work:
 - [03-03]: Wave-based execution loop naturally handles DAG dependencies
 - [Phase 04]: Non-blocking publish with select/default prevents slow subscribers from blocking execution
 - [Phase 04]: SubscribeAll via dedicated allSubs slice enables single-channel multi-topic consumption
+- [04-02]: Use stable bubbletea v1.x instead of v2 beta for production reliability
+- [04-02]: Debounce viewport updates with 50ms tick to prevent render thrashing from high-frequency events
+- [04-02]: Auto-scroll viewport to bottom on new output for better real-time UX
+- [04-02]: Split-pane layout with agent list+viewport (35%) and DAG progress (30% bottom-right)
 
 ### Pending Todos
 
@@ -116,17 +121,16 @@ None yet.
 **Phase 4 In Progress - No Blockers**
 
 Phase 1-3 complete. All core infrastructure delivered.
-Phase 4 started - Event bus foundation complete:
-- Channel-based event bus with non-blocking publish (select/default pattern)
-- SubscribeAll enables single-channel multi-topic consumption
-- ParallelRunner instrumented with event publishing at all lifecycle points
-- TaskStarted, TaskCompleted, TaskFailed, TaskMerged, and DAGProgress events
-- All tests passing (7 event bus tests, 8 orchestrator tests with -race flag)
+Phase 4 progress (2 of 3 plans complete):
+- Plan 01: Event bus foundation with non-blocking publish and SubscribeAll
+- Plan 02: Bubble Tea TUI with split-pane layout, real-time event consumption, vim navigation
+- All tests passing with -race flag
+- Demo binary compiles and runs successfully
 
-**Ready for Phase 4 Plan 02 (TUI Display)** - Event infrastructure complete, TUI can consume events without blocking execution
+**Ready for Phase 4 Plan 03 (Interactive Controls)** - TUI foundation complete, event routing ready for user input commands
 
 ## Session Continuity
 
 Last session: 2026-02-10
-Stopped at: Completed 04-01-PLAN.md (Event bus and ParallelRunner instrumentation)
+Stopped at: Completed 04-02-PLAN.md (Bubble Tea TUI with split-pane layout)
 Resume file: None
