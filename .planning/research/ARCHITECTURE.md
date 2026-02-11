@@ -1,928 +1,796 @@
 # Architecture Research
 
-**Domain:** Multi-Agent AI Orchestration System
-**Researched:** 2026-02-10
+**Domain:** Dialog overlay system and dynamic config for Bubble Tea TUI
+**Researched:** 2026-02-11
 **Confidence:** HIGH
 
-## Standard Architecture
-
-### System Overview
+## Existing Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         TUI Layer (Bubble Tea)                       │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                 │
-│  │  Main View  │  │  Split Pane │  │  Status Bar │                 │
-│  │  Coordinator│  │  Agent Views│  │  Metrics    │                 │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                 │
-│         │                │                │                         │
-│         └────────────────┴────────────────┘                         │
-│                          │                                          │
-├──────────────────────────┴──────────────────────────────────────────┤
-│                     Orchestration Layer                             │
-│  ┌──────────────────────────────────────────────────────────┐       │
-│  │                  Coordinator (Hub)                        │       │
-│  │  - Task decomposition (DAG generation)                    │       │
-│  │  - Agent lifecycle management                             │       │
-│  │  - Dependency resolution                                  │       │
-│  │  - Result aggregation                                     │       │
-│  └──┬────────────┬────────────┬────────────┬────────────────┘       │
-│     │            │            │            │                        │
-│  ┌──▼──┐      ┌──▼──┐      ┌──▼──┐      ┌──▼──┐                    │
-│  │Agent│      │Agent│      │Agent│      │Agent│                    │
-│  │ 1   │      │ 2   │      │ 3   │      │ N   │                    │
-│  └──┬──┘      └──┬──┘      └──┬──┘      └──┬──┘                    │
-│     │            │            │            │                        │
-├─────┴────────────┴────────────┴────────────┴────────────────────────┤
-│                     Backend Abstraction Layer                       │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                 │
-│  │  In-Process │  │  Subprocess │  │   Network   │                 │
-│  │  (Fantasy)  │  │  (Claude    │  │  (API/MCP)  │                 │
-│  │             │  │   Code CLI) │  │             │                 │
-│  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘                 │
-│         │                │                │                         │
-├─────────┴────────────────┴────────────────┴─────────────────────────┤
-│                         Execution Layer                             │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
-│  │  Go Runtime  │  │  OS Process  │  │  HTTP/JSON   │              │
-│  │  Goroutines  │  │  Management  │  │  RPC Client  │              │
-│  └──────────────┘  └──────────────┘  └──────────────┘              │
-├─────────────────────────────────────────────────────────────────────┤
-│                         State Management                            │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
-│  │  Task Graph  │  │ Conversation │  │   Metrics &  │              │
-│  │     DAG      │  │   History    │  │   Telemetry  │              │
-│  └──────────────┘  └──────────────┘  └──────────────┘              │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                    Root Model (tui.Model)                   │
+│  - Pane focus state (Tab cycling)                           │
+│  - Modal overlay flag (showSettings)                        │
+│  - Event bus subscription                                   │
+│  - Config reference                                          │
+├─────────────────────────────────────────────────────────────┤
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │ AgentPane    │  │ DAGPane      │  │ SettingsPane │       │
+│  │              │  │              │  │ (Modal)      │       │
+│  │ - Agent list │  │ - DAG        │  │ - huh.Form   │       │
+│  │ - Output     │  │   progress   │  │ - Overlay    │       │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘       │
+│         │                 │                 │                │
+├─────────┴─────────────────┴─────────────────┴────────────────┤
+│                       Event Bus                               │
+│  TaskStartedEvent → TaskOutputEvent → TaskCompletedEvent     │
+│  DAGProgressEvent → TaskFailedEvent → TaskMergedEvent        │
+├─────────────────────────────────────────────────────────────┤
+│                    Config Layer                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │ Providers    │  │ Agents       │  │ Workflows    │       │
+│  │ map[string]  │  │ map[string]  │  │ map[string]  │       │
+│  └──────────────┘  └──────────────┘  └──────────────┘       │
+├─────────────────────────────────────────────────────────────┤
+│                    Backend Factory                           │
+│  ProviderConfig → Backend interface (Claude/Codex/Goose)    │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Component Responsibilities
+### Current Component Responsibilities
 
-| Component | Responsibility | Typical Implementation |
+| Component | Responsibility | Current Implementation |
 |-----------|----------------|------------------------|
-| **Coordinator** | Hub for task decomposition, agent selection, DAG scheduling, result aggregation | Hub-and-spoke pattern with work-stealing scheduler |
-| **Agent** | Executes specific tasks, manages conversation state, tool execution | Interface-based abstraction over multiple backends |
-| **Backend Adapter** | Translates between agent interface and specific LLM provider/CLI | Adapter pattern (in-process, subprocess, network) |
-| **Task Scheduler** | Resolves dependencies, schedules parallel execution, manages work queue | DAG-based with topological sort and goroutine pool |
-| **Subprocess Manager** | Launches/monitors CLI subprocesses, handles stdin/stdout streaming, JSON-RPC protocol | Process lifecycle with bidirectional communication |
-| **State Store** | Persists conversation history, task results, agent metrics | In-memory with optional persistence layer |
-| **TUI Manager** | Renders split-pane views, routes user input, updates agent displays | Bubble Tea MUV (Model-Update-View) architecture |
-| **Event Bus** | Pub/sub for agent events, progress updates, inter-agent messaging | Channel-based or library like Watermill |
+| **Root Model** | Pane focus management, event routing, modal state | Single `showSettings` bool flag, direct key handling |
+| **AgentPaneModel** | Display running agents and output | Viewport-based output, event-driven updates |
+| **DAGPaneModel** | DAG visualization and progress | Receives DAGProgressEvent from event bus |
+| **SettingsPaneModel** | Config editing overlay | Uses huh.Form, full-screen overlay, manual visibility flag |
+| **Event Bus** | Async event propagation | Channel-based broadcast, subscription model |
+| **Config Loader** | Two-tier global+project merge | JSON files, static load at startup |
+| **Backend Factory** | Provider instantiation | Switch on Type string, creates Backend interface |
+
+## Target Architecture for New Features
+
+### System Structure with Dialog Stack
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Root Model (tui.Model)                   │
+│  + Dialog stack []Dialog (NEW)                              │
+│  + Theme *Theme (NEW)                                       │
+│  + Config hot-reload subscription (NEW)                     │
+├─────────────────────────────────────────────────────────────┤
+│                      Dialog Layer (NEW)                     │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │ Settings     │  │ Backend      │  │ Role         │       │
+│  │ Dialog       │  │ CRUD Dialog  │  │ CRUD Dialog  │       │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘       │
+│         │                 │                 │                │
+│         └─────────────────┴─────────────────┘                │
+│                  Common Dialog Interface                     │
+│  - IsOpen() bool                                             │
+│  - HandleInput(msg) tea.Cmd                                  │
+│  - View(w, h int) string                                     │
+│  - Close()                                                   │
+├─────────────────────────────────────────────────────────────┤
+│                   Reusable List Component (NEW)              │
+│  ┌─────────────────────────────────────────────────┐         │
+│  │ CRUDList[T]                                     │         │
+│  │  - bubbles/list wrapper                         │         │
+│  │  - Item actions (Add/Edit/Delete)               │         │
+│  │  - Form integration for create/edit             │         │
+│  │  - Confirmation prompts                         │         │
+│  └─────────────────────────────────────────────────┘         │
+├─────────────────────────────────────────────────────────────┤
+│                  Existing Panes (UNCHANGED)                 │
+│  ┌──────────────┐  ┌──────────────┐                          │
+│  │ AgentPane    │  │ DAGPane      │                          │
+│  │              │  │              │                          │
+│  └──────────────┘  └──────────────┘                          │
+├─────────────────────────────────────────────────────────────┤
+│              Updated Config Types (REFACTOR)                │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │ Backends     │  │ Roles        │  │ Workflows    │       │
+│  │ (was         │  │ (was Agents) │  │ (unchanged)  │       │
+│  │  Providers)  │  │              │  │              │       │
+│  └──────────────┘  └──────────────┘  └──────────────┘       │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ## Recommended Project Structure
 
 ```
-orchestrator/
-├── cmd/
-│   └── orchestrator/       # Main entry point
-│       └── main.go
-├── internal/
-│   ├── coordinator/        # Orchestration logic
-│   │   ├── coordinator.go  # Hub implementation
-│   │   ├── scheduler.go    # DAG scheduler
-│   │   └── graph.go        # Task dependency graph
-│   ├── agent/              # Agent abstraction
-│   │   ├── agent.go        # Agent interface
-│   │   ├── session.go      # Conversation state
-│   │   └── registry.go     # Agent factory/registry
-│   ├── backend/            # Backend adapters
-│   │   ├── backend.go      # Backend interface
-│   │   ├── fantasy.go      # In-process (Fantasy LLM)
-│   │   ├── subprocess.go   # CLI subprocess wrapper
-│   │   └── network.go      # Network API client
-│   ├── subprocess/         # Process management
-│   │   ├── manager.go      # Process lifecycle
-│   │   ├── stdio.go        # stdin/stdout streaming
-│   │   └── jsonrpc.go      # JSON-RPC protocol
-│   ├── state/              # State management
-│   │   ├── store.go        # State storage
-│   │   ├── history.go      # Conversation history
-│   │   └── metrics.go      # Performance metrics
-│   ├── events/             # Event bus
-│   │   ├── bus.go          # Pub/sub implementation
-│   │   └── types.go        # Event definitions
-│   ├── tui/                # Terminal UI
-│   │   ├── app.go          # Bubble Tea app
-│   │   ├── coordinator_view.go  # Main view
-│   │   ├── agent_view.go   # Split pane agent views
-│   │   ├── layout.go       # Layout manager
-│   │   └── styles.go       # Lipgloss styles
-│   └── tools/              # Shared tool system
-│       ├── tool.go         # Tool interface (from Crush)
-│       └── registry.go     # Tool registry
-├── pkg/
-│   └── config/             # Public configuration types
-│       └── config.go
-└── .planning/
-    └── research/           # This file
+internal/tui/
+├── model.go              # Root model (MODIFY: add dialog stack)
+├── keys.go               # Key bindings (UNCHANGED)
+├── styles.go             # Basic styles (REFACTOR → theme.go)
+├── agent_pane.go         # Agent display (UNCHANGED)
+├── dag_pane.go           # DAG display (UNCHANGED)
+├── settings_pane.go      # Settings modal (REFACTOR → dialog)
+│
+├── theme.go              # NEW: Centralized lipgloss theme
+├── dialog.go             # NEW: Dialog interface & stack helpers
+│
+├── dialogs/              # NEW: Dialog implementations
+│   ├── settings.go       # Migrated from settings_pane.go
+│   ├── backends.go       # Backend CRUD dialog
+│   ├── roles.go          # Role CRUD dialog
+│   ├── workflows.go      # Workflow CRUD dialog
+│   ├── form.go           # Generic form dialog
+│   └── confirm.go        # Yes/No confirmation
+│
+└── components/           # NEW: Reusable components
+    └── crudlist.go       # Generic CRUD list wrapper
+
+internal/config/
+├── types.go              # MODIFY: Rename Provider→Backend, Agent→Role
+├── loader.go             # MODIFY: Add backward compat migration
+├── defaults.go           # MODIFY: Update default names
+├── save.go               # UNCHANGED
+└── *_test.go             # UPDATE: Test new names
 ```
 
 ### Structure Rationale
 
-- **`coordinator/`**: Core orchestration logic isolated from UI and backends. Hub-and-spoke pattern with DAG scheduling for parallel task execution. Separates graph construction from scheduling for testability.
+- **`dialogs/` package:** All dialogs in one place, implements `Dialog` interface consistently. Easy to add new dialogs without touching root model.
 
-- **`agent/`**: Interface-based design allows multiple backend implementations. Session management handles multi-turn conversation state independently of backend type.
+- **`components/` package:** Reusable UI components that aren't full dialogs. `CRUDList` is data structure wrapper, not Bubble Tea model.
 
-- **`backend/`**: Adapter pattern abstracts LLM provider differences. Three primary adapters: in-process (Fantasy), subprocess (Claude Code CLI), network (API/MCP). Each adapter implements the same interface for uniform agent interaction.
+- **`theme.go` at root:** Theme shared across all dialogs and panes. Single import point for consistent styling.
 
-- **`subprocess/`**: Dedicated package for complex subprocess management. Handles bidirectional JSON-RPC communication over stdin/stdout. Critical for external CLI integration (Claude Code, Codex).
-
-- **`state/`**: Centralized state management prevents inconsistency across concurrent agents. Conversation history storage enables context window management. Metrics collection for observability.
-
-- **`events/`**: Decouples components via pub/sub pattern. Agents publish progress events, TUI subscribes for updates. Enables horizontal scaling later (replace channels with message broker).
-
-- **`tui/`**: Bubble Tea MUV architecture. Layout manager handles dynamic split-pane resizing. Each agent gets dedicated view component with independent state.
-
-- **`tools/`**: Reuses Crush's existing tool system. Shared registry allows different agents to access same tools with different permissions.
+- **Config types stay in `config/`:** Domain logic separate from UI. UI imports config types, not vice versa.
 
 ## Architectural Patterns
 
-### Pattern 1: Hub-and-Spoke Orchestration
+### Pattern 1: Dialog Stack with Interface-Based Overlay
 
-**What:** Central coordinator (hub) manages specialized agents (spokes). Coordinator decomposes tasks into DAG, assigns to agents, aggregates results.
+**What:** Manage multiple modal dialogs as a stack where topmost dialog has input priority. Based on Crush TUI pattern.
 
-**When to use:** Default pattern for most multi-agent systems. Provides governance, observability, predictable control flow. Suitable when reasoning transparency and traceability are critical.
+**When to use:** Multiple overlapping modal interactions (settings, CRUD forms, confirmations).
 
 **Trade-offs:**
-- **Pros:** Strong central control, easier monitoring, consistent decision-making, audit-friendly
-- **Cons:** Single point of failure, potential bottleneck, head-of-line blocking
+- **Pro:** Clean separation, predictable input routing, easy to add new dialogs
+- **Pro:** Stack makes back navigation natural (Esc pops stack)
+- **Con:** Requires consistent dialog interface implementation
+- **Con:** Render order must be managed carefully for z-index
 
 **Example:**
 ```go
-type Coordinator struct {
-    agents   map[string]Agent
-    scheduler *DAGScheduler
-    eventBus *EventBus
+// Dialog interface - all dialogs implement this
+type Dialog interface {
+    IsOpen() bool
+    HandleInput(msg tea.Msg) tea.Cmd
+    View(w, h int) string
+    Close()
 }
 
-func (c *Coordinator) Execute(task Task) (Result, error) {
-    // Decompose into DAG
-    dag := c.decompose(task)
-
-    // Schedule parallel execution
-    results := c.scheduler.Execute(dag, c.agents)
-
-    // Aggregate results
-    return c.aggregate(results)
-}
-```
-
-**Scaling strategy:** Bake in ability to fan out, shard, and delegate coordination as traffic grows. Use work-stealing for load balancing across agents.
-
-### Pattern 2: DAG-Based Task Scheduling
-
-**What:** Represent task dependencies as directed acyclic graph. Topological sort determines execution order. Nodes = tasks, edges = dependencies. Enables maximum parallelism while respecting dependencies.
-
-**When to use:** Complex workflows with parallel execution opportunities. When tasks have clear dependency relationships. Need to maximize throughput without violating constraints.
-
-**Trade-offs:**
-- **Pros:** Maximum parallelism, clear dependency visualization, automatic deadlock prevention (acyclic)
-- **Cons:** Overhead of graph construction, complexity of dynamic task generation, requires careful error propagation
-
-**Example:**
-```go
-type TaskNode struct {
-    ID       string
-    Task     Task
-    Agent    string
-    Children []*TaskNode
+// Root model maintains stack
+type Model struct {
+    dialogStack []Dialog
+    // ... existing fields
 }
 
-type DAGScheduler struct {
-    workerPool chan struct{} // Limit concurrent goroutines
-}
-
-func (s *DAGScheduler) Execute(dag *TaskNode, agents map[string]Agent) Results {
-    results := make(chan Result)
-    var wg sync.WaitGroup
-
-    // Topological execution with work-stealing
-    s.executeNode(dag, agents, results, &wg)
-
-    wg.Wait()
-    close(results)
-
-    return collectResults(results)
-}
-
-func (s *DAGScheduler) executeNode(node *TaskNode, agents map[string]Agent,
-                                     results chan<- Result, wg *sync.WaitGroup) {
-    wg.Add(1)
-    go func() {
-        defer wg.Done()
-
-        // Execute task
-        s.workerPool <- struct{}{} // Acquire worker slot
-        result := agents[node.Agent].Execute(node.Task)
-        <-s.workerPool // Release worker slot
-
-        results <- result
-
-        // Execute children in parallel
-        for _, child := range node.Children {
-            s.executeNode(child, agents, results, wg)
-        }
-    }()
-}
-```
-
-### Pattern 3: Adapter-Based Backend Abstraction
-
-**What:** Define common Agent interface. Implement adapters for each backend type (in-process LLM, subprocess CLI, network API). Agents use adapters transparently.
-
-**When to use:** Multiple LLM providers or execution environments. Need to swap backends without changing orchestration logic. Testing with mock implementations.
-
-**Trade-offs:**
-- **Pros:** Decoupling from providers, easy testing, simple provider switching, reduced vendor lock-in
-- **Cons:** Lowest-common-denominator interface, adapter complexity for provider-specific features
-
-**Example:**
-```go
-// Agent interface (unchanged from Crush)
-type Agent interface {
-    Execute(ctx context.Context, task Task) (Result, error)
-    Stream(ctx context.Context, task Task) (<-chan Event, error)
-}
-
-// Backend interface
-type Backend interface {
-    Send(ctx context.Context, messages []Message) (Response, error)
-    StreamSend(ctx context.Context, messages []Message) (<-chan Token, error)
-}
-
-// In-process adapter (Fantasy)
-type FantasyBackend struct {
-    client *fantasy.Client
-    model  string
-}
-
-func (b *FantasyBackend) Send(ctx context.Context, msgs []Message) (Response, error) {
-    return b.client.Complete(ctx, b.model, msgs)
-}
-
-// Subprocess adapter (Claude Code CLI)
-type SubprocessBackend struct {
-    manager *subprocess.Manager
-    process *subprocess.Process
-}
-
-func (b *SubprocessBackend) Send(ctx context.Context, msgs []Message) (Response, error) {
-    // JSON-RPC over stdin/stdout
-    return b.process.Call(ctx, "chat.complete", msgs)
-}
-
-// Network adapter (API/MCP)
-type NetworkBackend struct {
-    client *http.Client
-    baseURL string
-}
-
-func (b *NetworkBackend) Send(ctx context.Context, msgs []Message) (Response, error) {
-    // HTTP POST with JSON payload
-    return b.client.Post(b.baseURL, msgs)
-}
-
-// SessionAgent wraps backend with conversation state
-type SessionAgent struct {
-    backend Backend
-    history []Message
-    tools   []Tool
-}
-
-func (a *SessionAgent) Execute(ctx context.Context, task Task) (Result, error) {
-    // Add task to history
-    a.history = append(a.history, task.ToMessage())
-
-    // Send to backend
-    response, err := a.backend.Send(ctx, a.history)
-
-    // Update history
-    a.history = append(a.history, response.ToMessage())
-
-    return response.ToResult(), err
-}
-```
-
-### Pattern 4: Subprocess JSON-RPC Communication
-
-**What:** Launch external CLI as subprocess. Communicate via JSON-RPC 2.0 over stdin/stdout. Bidirectional protocol allows requests, responses, notifications, and subscriptions.
-
-**When to use:** Integrating external tools like Claude Code, Codex. Tools only available as CLI. Need process isolation or sandboxing.
-
-**Trade-offs:**
-- **Pros:** Process isolation, language-agnostic, reuses existing CLIs, sandboxing
-- **Cons:** Startup overhead, serialization cost, process management complexity, harder debugging
-
-**Example:**
-```go
-type JSONRPCProcess struct {
-    cmd    *exec.Cmd
-    stdin  io.WriteCloser
-    stdout io.ReadCloser
-    reqID  atomic.Int64
-    pending map[int64]chan Response
-    mu     sync.RWMutex
-}
-
-func (p *JSONRPCProcess) Start(command string, args ...string) error {
-    p.cmd = exec.Command(command, args...)
-
-    // Setup pipes
-    stdin, _ := p.cmd.StdinPipe()
-    stdout, _ := p.cmd.StdoutPipe()
-    p.stdin = stdin
-    p.stdout = stdout
-
-    // Start reading responses
-    go p.readLoop()
-
-    return p.cmd.Start()
-}
-
-func (p *JSONRPCProcess) Call(ctx context.Context, method string, params interface{}) (json.RawMessage, error) {
-    id := p.reqID.Add(1)
-
-    // Create response channel
-    responseChan := make(chan Response, 1)
-    p.mu.Lock()
-    p.pending[id] = responseChan
-    p.mu.Unlock()
-
-    // Send request
-    req := JSONRPCRequest{
-        JSONRPC: "2.0",
-        ID:      id,
-        Method:  method,
-        Params:  params,
-    }
-
-    if err := json.NewEncoder(p.stdin).Encode(req); err != nil {
-        return nil, err
-    }
-
-    // Wait for response
-    select {
-    case resp := <-responseChan:
-        if resp.Error != nil {
-            return nil, resp.Error
-        }
-        return resp.Result, nil
-    case <-ctx.Done():
-        return nil, ctx.Err()
-    }
-}
-
-func (p *JSONRPCProcess) readLoop() {
-    decoder := json.NewDecoder(p.stdout)
-    for {
-        var resp JSONRPCResponse
-        if err := decoder.Decode(&resp); err != nil {
-            return // Process terminated
-        }
-
-        // Route response to waiting caller
-        p.mu.RLock()
-        ch := p.pending[resp.ID]
-        p.mu.RUnlock()
-
-        if ch != nil {
-            ch <- resp
-            p.mu.Lock()
-            delete(p.pending, resp.ID)
-            p.mu.Unlock()
-        }
-    }
-}
-```
-
-### Pattern 5: Event-Driven Progress Updates
-
-**What:** Agents publish events to event bus. TUI subscribes to events and updates views. Decouples event producers from consumers.
-
-**When to use:** Multiple consumers need agent updates (TUI, metrics, logging). Agents should not know about UI. Need to add observers without modifying agents.
-
-**Trade-offs:**
-- **Pros:** Decoupling, flexible subscription, easy to add observers, testable
-- **Cons:** Ordering guarantees harder, debugging event flow, potential memory leaks from subscriptions
-
-**Example:**
-```go
-type EventBus struct {
-    subscribers map[string][]chan Event
-    mu          sync.RWMutex
-}
-
-func (b *EventBus) Subscribe(topic string) <-chan Event {
-    ch := make(chan Event, 100) // Buffered to prevent blocking
-
-    b.mu.Lock()
-    b.subscribers[topic] = append(b.subscribers[topic], ch)
-    b.mu.Unlock()
-
-    return ch
-}
-
-func (b *EventBus) Publish(topic string, event Event) {
-    b.mu.RLock()
-    subscribers := b.subscribers[topic]
-    b.mu.RUnlock()
-
-    for _, ch := range subscribers {
-        select {
-        case ch <- event:
-        default:
-            // Drop event if subscriber can't keep up (non-blocking)
-        }
-    }
-}
-
-// Agent publishes progress
-func (a *Agent) Execute(ctx context.Context, task Task) (Result, error) {
-    a.eventBus.Publish("agent."+a.ID, Event{Type: "started", Task: task})
-
-    result, err := a.backend.Send(ctx, task.ToMessages())
-
-    a.eventBus.Publish("agent."+a.ID, Event{Type: "completed", Result: result})
-
-    return result, err
-}
-
-// TUI subscribes to all agents
-func (m *Model) Init() tea.Cmd {
-    return func() tea.Msg {
-        for agentID := range m.agents {
-            events := m.eventBus.Subscribe("agent." + agentID)
-            go func(id string, ch <-chan Event) {
-                for evt := range ch {
-                    m.program.Send(AgentEventMsg{AgentID: id, Event: evt})
-                }
-            }(agentID, events)
-        }
-        return nil
-    }
-}
-```
-
-### Pattern 6: Work-Stealing Scheduler
-
-**What:** Each processor (goroutine) has local task queue. Idle processors steal tasks from other queues. Go runtime uses this pattern internally.
-
-**When to use:** High-concurrency scenarios with variable task durations. Want automatic load balancing without manual sharding. Prevent idle workers while others are overloaded.
-
-**Trade-offs:**
-- **Pros:** Automatic load balancing, no idle workers, good cache locality (local queue first)
-- **Cons:** Lock contention on steals, complexity of deque implementation
-
-**Example:**
-```go
-type WorkStealingScheduler struct {
-    queues    []chan Task // One queue per worker
-    workers   int
-    running   atomic.Bool
-}
-
-func NewWorkStealingScheduler(workers int) *WorkStealingScheduler {
-    queues := make([]chan Task, workers)
-    for i := range queues {
-        queues[i] = make(chan Task, 256) // Local queue
-    }
-    return &WorkStealingScheduler{queues: queues, workers: workers}
-}
-
-func (s *WorkStealingScheduler) Start(agents map[string]Agent) {
-    s.running.Store(true)
-
-    for i := 0; i < s.workers; i++ {
-        go s.worker(i, agents)
-    }
-}
-
-func (s *WorkStealingScheduler) worker(id int, agents map[string]Agent) {
-    localQueue := s.queues[id]
-
-    for s.running.Load() {
-        select {
-        case task := <-localQueue:
-            // Execute from local queue
-            agents[task.AgentID].Execute(context.Background(), task)
-
-        default:
-            // Local queue empty, try stealing
-            if task := s.steal(id); task != nil {
-                agents[task.AgentID].Execute(context.Background(), *task)
-            } else {
-                time.Sleep(time.Millisecond) // Back off
+// Update routing - topmost dialog gets priority
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    // If any dialog is open, route to topmost
+    if len(m.dialogStack) > 0 {
+        top := m.dialogStack[len(m.dialogStack)-1]
+        if top.IsOpen() {
+            cmd := top.HandleInput(msg)
+
+            // After handling, check if closed and pop
+            if !top.IsOpen() {
+                m.dialogStack = m.dialogStack[:len(m.dialogStack)-1]
             }
+            return m, cmd
+        }
+    }
+
+    // Otherwise, normal pane routing
+    // ... existing pane delegation
+}
+
+// View rendering - compose overlays
+func (m Model) View() string {
+    base := m.renderPanes()
+
+    // Layer each dialog from bottom to top
+    for _, dialog := range m.dialogStack {
+        if dialog.IsOpen() {
+            overlay := dialog.View(m.width, m.height)
+            base = placeOverlay(base, overlay, m.width, m.height)
+        }
+    }
+
+    return base
+}
+```
+
+**Integration with existing:**
+- Replace `showSettings bool` with dialog stack
+- Migrate `SettingsPaneModel` to implement `Dialog` interface
+- Keep existing pane structure unchanged
+- Event bus continues unchanged
+
+### Pattern 2: Generic CRUD List Component
+
+**What:** Reusable list component wrapping bubbles/list with built-in add/edit/delete operations.
+
+**When to use:** Managing collections (backends, roles, workflows).
+
+**Trade-offs:**
+- **Pro:** DRY - one implementation for all CRUD lists
+- **Pro:** Consistent UX across all config editing
+- **Con:** Generic constraints may feel clunky in Go 1.21
+- **Con:** Each item type needs adapter to list.Item interface
+
+**Example:**
+```go
+// Generic CRUD list wrapping bubbles/list
+type CRUDList[T any] struct {
+    list      list.Model
+    items     []T
+    toItem    func(T) list.Item        // Adapter to list.Item
+    fromItem  func(list.Item) T        // Adapter from list.Item
+
+    // Optional form for add/edit
+    formDialog Dialog
+
+    // Confirmation for delete
+    confirmDialog Dialog
+}
+
+// Key methods
+func (c *CRUDList[T]) HandleKey(key string) tea.Cmd {
+    switch key {
+    case "a":
+        return c.openAddForm()
+    case "e":
+        return c.openEditForm()
+    case "d":
+        return c.openDeleteConfirm()
+    default:
+        // Delegate to bubbles/list
+        var cmd tea.Cmd
+        c.list, cmd = c.list.Update(msg)
+        return cmd
+    }
+}
+
+// CRUD operations use list methods
+func (c *CRUDList[T]) Add(item T) tea.Cmd {
+    listItem := c.toItem(item)
+    return c.list.InsertItem(len(c.items), listItem)
+}
+
+func (c *CRUDList[T]) Update(index int, item T) tea.Cmd {
+    listItem := c.toItem(item)
+    return c.list.SetItem(index, listItem)
+}
+
+func (c *CRUDList[T]) Delete(index int) {
+    c.list.RemoveItem(index)
+}
+```
+
+**Usage for backends:**
+```go
+type BackendListItem struct {
+    config.BackendConfig
+    name string
+}
+
+func (b BackendListItem) FilterValue() string { return b.name }
+func (b BackendListItem) Title() string       { return b.name }
+func (b BackendListItem) Description() string { return b.Type }
+
+// Create CRUD list
+backendList := NewCRUDList(
+    backends,
+    func(bc config.BackendConfig) list.Item { return BackendListItem{bc, name} },
+    func(item list.Item) config.BackendConfig { return item.(BackendListItem).BackendConfig },
+)
+```
+
+**Integration points:**
+- Each CRUD dialog contains a `CRUDList[ConfigType]`
+- Form dialogs for add/edit pushed onto dialog stack
+- Confirmation dialogs pushed onto dialog stack
+- On save, config propagation triggered (see Pattern 4)
+
+### Pattern 3: Centralized Theme System
+
+**What:** Single source of truth for lipgloss styles, organized by component and semantic purpose.
+
+**When to use:** Need consistent styling across dialogs, panes, and components.
+
+**Trade-offs:**
+- **Pro:** Single place to adjust colors/styles
+- **Pro:** Supports future theme switching (light/dark)
+- **Con:** Global state can make testing harder
+- **Con:** Need discipline to use theme vs inline styles
+
+**Example:**
+```go
+// internal/tui/theme.go
+type Theme struct {
+    // Border styles
+    FocusedBorder   lipgloss.Style
+    UnfocusedBorder lipgloss.Style
+    DialogBorder    lipgloss.Style
+
+    // Status colors
+    Running   lipgloss.Style
+    Complete  lipgloss.Style
+    Failed    lipgloss.Style
+    Pending   lipgloss.Style
+
+    // UI element styles
+    Title       lipgloss.Style
+    Help        lipgloss.Style
+    ListItem    lipgloss.Style
+    ListSelected lipgloss.Style
+    ButtonPrimary lipgloss.Style
+    ButtonSecondary lipgloss.Style
+
+    // Dialog-specific
+    DialogTitle     lipgloss.Style
+    DialogHelp      lipgloss.Style
+    FormLabel       lipgloss.Style
+    FormInput       lipgloss.Style
+    FormError       lipgloss.Style
+}
+
+func DefaultTheme() *Theme {
+    return &Theme{
+        FocusedBorder: lipgloss.NewStyle().
+            Border(lipgloss.RoundedBorder()).
+            BorderForeground(lipgloss.Color("62")),
+
+        UnfocusedBorder: lipgloss.NewStyle().
+            Border(lipgloss.RoundedBorder()).
+            BorderForeground(lipgloss.Color("240")),
+
+        DialogBorder: lipgloss.NewStyle().
+            Border(lipgloss.ThickBorder()).
+            BorderForeground(lipgloss.Color("170")),
+
+        // ... rest of styles
+    }
+}
+
+// Pass theme to dialogs
+type BackendCRUDDialog struct {
+    theme *Theme
+    // ...
+}
+
+func (d *BackendCRUDDialog) View(w, h int) string {
+    title := d.theme.DialogTitle.Render("Manage Backends")
+    // ... use theme throughout
+}
+```
+
+**Integration:**
+- Create `Theme` in root model initialization
+- Pass to all panes and dialogs via constructor
+- Replace direct `StyleFocusedBorder` usage with `theme.FocusedBorder`
+- Existing styles.go becomes theme factory
+
+### Pattern 4: Config Change Propagation
+
+**What:** Notify running components when config changes, based on Bubble Tea message routing.
+
+**When to use:** Config edits should affect runtime without restart.
+
+**Trade-offs:**
+- **Pro:** Immediate feedback on config changes
+- **Pro:** Aligns with event-driven architecture
+- **Con:** Not all changes can be hot-reloaded (backend type switch)
+- **Con:** Need careful handling of in-flight tasks
+
+**Example:**
+```go
+// Config change event
+type ConfigChangedMsg struct {
+    Section string // "backends", "roles", "workflows"
+    Config  *config.OrchestratorConfig
+}
+
+// Root model sends after dialog saves
+func (m Model) saveConfig(cfg *config.OrchestratorConfig) tea.Cmd {
+    return func() tea.Msg {
+        if err := config.Save(cfg, m.projectConfigPath); err != nil {
+            return ConfigSaveErrorMsg{err}
+        }
+        return ConfigChangedMsg{
+            Section: "backends",
+            Config:  cfg,
         }
     }
 }
 
-func (s *WorkStealingScheduler) steal(thiefID int) *Task {
-    // Try stealing from random victim
-    victimID := rand.Intn(s.workers)
-    if victimID == thiefID {
-        return nil
-    }
+// Components subscribe to config changes
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    switch msg := msg.(type) {
+    case ConfigChangedMsg:
+        // Update config reference
+        m.config = msg.Config
 
-    select {
-    case task := <-s.queues[victimID]:
-        return &task
-    default:
-        return nil
-    }
-}
+        // Propagate to components that need it
+        var cmds []tea.Cmd
 
-func (s *WorkStealingScheduler) Submit(task Task) {
-    // Hash agent ID to worker queue for locality
-    workerID := hash(task.AgentID) % s.workers
-    s.queues[workerID] <- task
+        // Backend factory needs to recreate backends
+        if msg.Section == "backends" {
+            cmds = append(cmds, m.restartBackends())
+        }
+
+        // Agent pane might update display
+        if msg.Section == "roles" {
+            var cmd tea.Cmd
+            m.agentPane, cmd = m.agentPane.Update(msg)
+            cmds = append(cmds, cmd)
+        }
+
+        return m, tea.Batch(cmds...)
+    }
 }
 ```
+
+**Propagation strategy:**
+- **Backends:** Requires backend restart (close old, create new)
+- **Roles:** Update display only (affects new tasks)
+- **Workflows:** Update registry (affects new workflow starts)
+
+**Integration:**
+- Dialog save triggers `ConfigChangedMsg`
+- Root model broadcasts to relevant panes
+- Components handle or ignore based on section
+- Running tasks continue with old config (graceful)
+
+### Pattern 5: Overlay Composition Using lipgloss.Place
+
+**What:** Render dialog as overlay centered on base view using lipgloss.Place for positioning.
+
+**When to use:** Modal dialogs that need precise centering over base content.
+
+**Trade-offs:**
+- **Pro:** Simple API, handles ANSI escape sequences correctly
+- **Pro:** No manual line-by-line composition needed
+- **Con:** Limited to rectangular overlays
+- **Con:** Entire base view re-rendered even if unchanged
+
+**Example:**
+```go
+import "github.com/charmbracelet/lipgloss"
+
+func placeOverlay(base, overlay string, width, height int) string {
+    // Place overlay centered on base
+    return lipgloss.Place(
+        width,
+        height,
+        lipgloss.Center,  // horizontal
+        lipgloss.Center,  // vertical
+        overlay,
+        lipgloss.WithWhitespaceChars(" "),
+        lipgloss.WithWhitespaceForeground(lipgloss.Color("0")),
+    )
+}
+
+// Alternative: custom positioning
+func placeOverlayCustom(base, overlay string, x, y, width, height int) string {
+    // Split base into lines
+    baseLines := strings.Split(base, "\n")
+    overlayLines := strings.Split(overlay, "\n")
+
+    // Composite overlay onto base at position
+    for i, line := range overlayLines {
+        row := y + i
+        if row >= 0 && row < len(baseLines) {
+            baseLines[row] = composeLine(baseLines[row], line, x)
+        }
+    }
+
+    return strings.Join(baseLines, "\n")
+}
+```
+
+**Integration:**
+- Use in `Model.View()` after rendering base panes
+- Each dialog in stack rendered as overlay on top of previous
+- Dialogs don't need to know about base view structure
 
 ## Data Flow
 
-### Request Flow
+### Dialog Lifecycle Flow
 
 ```
-User Input (TUI)
+User presses 'b' (manage backends)
     ↓
-Coordinator.HandleRequest()
+Root Model.Update() receives KeyMsg
     ↓
-Task Decomposition (LLM-powered reasoning)
+Check: Is dialog stack empty?
+    ↓ YES
+Root pushes BackendCRUDDialog onto stack
     ↓
-DAG Construction (nodes = subtasks, edges = dependencies)
+BackendCRUDDialog.HandleInput() processes keys
     ↓
-DAG Scheduler (topological sort + work-stealing)
+User edits, adds, deletes items
     ↓
-Agent Pool (parallel execution via goroutines)
+User presses 's' (save)
     ↓
-Backend Adapters (Fantasy / Subprocess / Network)
+Dialog updates config, returns ConfigChangedMsg cmd
     ↓
-LLM Execution (in-process, CLI, or API)
+Dialog.Close() marks closed
     ↓
-Result Collection (channel aggregation)
+Root.Update() receives ConfigChangedMsg
     ↓
-Result Aggregation (coordinator synthesizes)
+Root pops closed dialog from stack
     ↓
-Event Publish (completion event)
+Root propagates config change to components
     ↓
-TUI Update (Bubble Tea Msg)
+Components update based on changed section
 ```
 
-### Agent Communication Flow
+### Config Type Migration Flow
 
 ```
-Agent A (via backend)
-    ↓
-Result published to Event Bus (topic: "agent.A.completed")
-    ↓
-Coordinator subscribes to all agent events
-    ↓
-Coordinator checks DAG dependencies
-    ↓
-Unblocked tasks scheduled to Agent Pool
-    ↓
-Agent B receives dependent task
-    ↓
-Agent B accesses Agent A's result from State Store
+Current: ProviderConfig → AgentConfig → Backend factory
+                ↓
+Proposed: BackendConfig → RoleConfig → Backend factory
 ```
 
-### Subprocess Communication Flow
+**Migration strategy:**
+- `ProviderConfig` → `BackendConfig` (rename Type field semantics same)
+- `AgentConfig` → `RoleConfig` (Provider becomes Backend reference)
+- `Providers map[string]` → `Backends map[string]`
+- `Agents map[string]` → `Roles map[string]`
+- Workflows unchanged (steps reference roles not agents)
+- Backend factory unchanged (Type field logic identical)
 
-```
-Coordinator
-    ↓
-SubprocessBackend.Send()
-    ↓
-JSON-RPC Request (method: "chat.complete", params: messages)
-    ↓
-stdin → Claude Code CLI process
-    ↓
-stdout → JSON-RPC Response stream
-    ↓
-Response Parser (line-by-line, buffered)
-    ↓
-Request/Response Correlation (match by ID)
-    ↓
-Result returned to SessionAgent
-    ↓
-History updated with assistant message
-```
-
-### State Management Flow
-
-```
-┌─────────────────────────────────────────────┐
-│           Conversation History              │
-│  ┌─────────────────────────────────────┐    │
-│  │ Agent A: [msg1, msg2, msg3]         │    │
-│  │ Agent B: [msg1, msg2]               │    │
-│  │ Agent C: [msg1]                     │    │
-│  └─────────────────────────────────────┘    │
-│                                             │
-│  SessionAgent → State Store (read history)  │
-│  SessionAgent ← State Store (write msg)     │
-│                                             │
-│           Task Execution Graph              │
-│  ┌─────────────────────────────────────┐    │
-│  │ Node A: completed ✓                 │    │
-│  │ Node B: in-progress ⟳               │    │
-│  │ Node C: blocked (waiting for B)     │    │
-│  └─────────────────────────────────────┘    │
-│                                             │
-│  Coordinator → State Store (update status)  │
-│  TUI ← State Store (subscribe to changes)   │
-└─────────────────────────────────────────────┘
-```
+**Backward compatibility:**
+- Config loader checks for old keys, migrates on load
+- Save always uses new schema
+- One-time migration per config file
 
 ### Key Data Flows
 
-1. **Task Decomposition**: User request → Coordinator uses LLM to reason about task → Generates DAG with nodes and dependencies → Returns execution plan
+1. **Dialog Open Flow:** User key → Root checks stack → Push dialog → Dialog renders overlay
+2. **Dialog Input Flow:** User key → Root routes to top dialog → Dialog processes → Return cmd
+3. **Dialog Close Flow:** Dialog marks closed → Root pops on next update → Back to pane routing
+4. **CRUD Add Flow:** Dialog opens form → User fills → Form returns item → List.InsertItem() → Config save
+5. **CRUD Edit Flow:** List selection → Dialog opens form → User edits → Form returns item → List.SetItem() → Config save
+6. **CRUD Delete Flow:** List selection → Dialog opens confirm → User confirms → List.RemoveItem() → Config save
+7. **Config Propagation Flow:** Save complete → ConfigChangedMsg → Root broadcasts → Components update
 
-2. **Parallel Execution**: DAG scheduler uses topological sort → Identifies tasks with no pending dependencies → Launches goroutines for parallel execution → Collects results via channels
+## Integration Points
 
-3. **Context Management**: Agent retrieves conversation history from State Store → Appends new user message → Sends to backend → Receives response → Appends assistant message → Updates State Store
+### New Components
 
-4. **Progress Streaming**: Agent publishes "started" event → TUI receives event via subscription → Updates agent view to "in-progress" → Agent publishes "token" events during streaming → TUI displays tokens in real-time → Agent publishes "completed" event → TUI updates view to "done"
+| Component | Type | Integration Point |
+|-----------|------|-------------------|
+| **Dialog Interface** | New | Root model maintains stack, routes input |
+| **BackendCRUDDialog** | New | Implements Dialog, uses CRUDList, pushes forms |
+| **RoleCRUDDialog** | New | Implements Dialog, uses CRUDList, pushes forms |
+| **WorkflowCRUDDialog** | New | Implements Dialog, uses CRUDList, pushes forms |
+| **CRUDList[T]** | New | Wraps bubbles/list, embedded in CRUD dialogs |
+| **FormDialog** | New | Generic form wrapper for add/edit, implements Dialog |
+| **ConfirmDialog** | New | Yes/No confirmation, implements Dialog |
+| **Theme** | New | Created in root, passed to all components |
 
-5. **Inter-Agent Handoffs**: Agent A completes subtask → Result stored in State Store → DAG scheduler marks node complete → Dependent nodes become unblocked → Agent B retrieves Agent A's result from State Store → Agent B executes with context
+### Modified Components
+
+| Component | Changes | Reason |
+|-----------|---------|--------|
+| **Root Model** | Add `dialogStack []Dialog`, remove `showSettings bool`, add `theme *Theme` | Dialog stack architecture |
+| **Root Model.Update()** | Add dialog routing logic before pane routing | Input priority for dialogs |
+| **Root Model.View()** | Add dialog overlay composition | Render dialog stack |
+| **SettingsPaneModel** | Convert to SettingsDialog, implement Dialog interface | Consistency with other dialogs |
+| **config.OrchestratorConfig** | Rename Providers→Backends, Agents→Roles | Terminology alignment |
+| **config.Loader** | Add migration from old schema | Backward compatibility |
+| **backend.New()** | Reference updated config types | Config rename propagation |
+
+### Unchanged Components
+
+- **AgentPaneModel** (displays agents, no config editing)
+- **DAGPaneModel** (displays DAG, no config editing)
+- **Event Bus** (orthogonal to UI changes)
+- **Backend Factory Logic** (Type switching unchanged)
+- **Task Scheduler** (not affected by UI changes)
+
+## Internal Boundaries
+
+| Boundary | Communication | Notes |
+|----------|---------------|-------|
+| **Root ↔ Dialogs** | Message delegation, cmd returns | Dialogs are dumb components, root controls lifecycle |
+| **Root ↔ Panes** | Message delegation when no dialog open | Existing pattern unchanged |
+| **Dialog ↔ CRUDList** | Direct method calls | CRUDList is data structure, not Bubble Tea component |
+| **Dialog ↔ Form Dialog** | Push/pop on dialog stack | Forms are dialogs too |
+| **Config ↔ All Components** | Read config pointer, react to ConfigChangedMsg | Unidirectional data flow |
+| **Theme ↔ All Components** | Read theme pointer | Shared immutable reference |
+
+## Anti-Patterns
+
+### Anti-Pattern 1: Dialog Directly Modifying Config
+
+**What people do:** Dialog saves config file directly in Update().
+
+**Why it's wrong:** Violates single responsibility, breaks config propagation, doesn't notify other components.
+
+**Do this instead:** Dialog returns `tea.Cmd` that sends `ConfigChangedMsg`. Root model orchestrates save and propagation.
+
+```go
+// WRONG
+func (d *BackendDialog) Update(msg tea.Msg) tea.Cmd {
+    if saveKey {
+        config.Save(d.config, "/path/to/config") // Direct save
+        d.Close()
+    }
+}
+
+// RIGHT
+func (d *BackendDialog) HandleInput(msg tea.Msg) tea.Cmd {
+    if saveKey {
+        d.Close()
+        return func() tea.Msg {
+            return ConfigChangedMsg{Section: "backends", Config: d.config}
+        }
+    }
+}
+```
+
+### Anti-Pattern 2: Multiple Overlay State Flags
+
+**What people do:** Add `showBackendDialog bool`, `showRoleDialog bool`, etc.
+
+**Why it's wrong:** Doesn't scale, can't handle stacked dialogs, complex state management.
+
+**Do this instead:** Use dialog stack, push/pop as needed.
+
+```go
+// WRONG
+type Model struct {
+    showSettings bool
+    showBackends bool
+    showRoles bool
+    showWorkflows bool
+}
+
+// RIGHT
+type Model struct {
+    dialogStack []Dialog
+}
+```
+
+### Anti-Pattern 3: Inline Lipgloss Styles
+
+**What people do:** Create styles directly in View() methods.
+
+**Why it's wrong:** Inconsistent styling, can't switch themes, duplicated style definitions.
+
+**Do this instead:** Use centralized theme.
+
+```go
+// WRONG
+func (d Dialog) View() string {
+    title := lipgloss.NewStyle().
+        Bold(true).
+        Foreground(lipgloss.Color("62")).
+        Render("Title")
+}
+
+// RIGHT
+func (d Dialog) View() string {
+    title := d.theme.DialogTitle.Render("Title")
+}
+```
+
+### Anti-Pattern 4: Tight Coupling to bubbles/list Internals
+
+**What people do:** Directly manipulate list model fields, bypass methods.
+
+**Why it's wrong:** Breaks encapsulation, fragile to bubbles updates, commands ignored.
+
+**Do this instead:** Use list methods, handle returned commands.
+
+```go
+// WRONG
+func (c *CRUDList) Add(item T) {
+    c.list.items = append(c.list.items, item) // Don't access internals
+}
+
+// RIGHT
+func (c *CRUDList) Add(item T) tea.Cmd {
+    listItem := c.toItem(item)
+    return c.list.InsertItem(len(c.items), listItem) // Use API, return cmd
+}
+```
+
+## Recommended Build Order
+
+Build order accounts for dependencies and incremental testing:
+
+### Phase 1: Foundation (No UI changes visible)
+1. **Theme system** - Create `theme.go`, migrate existing styles, test with current UI
+2. **Config type rename** - Rename types, add backward compatibility, test load/save
+3. **Dialog interface** - Define interface, stub implementations, no integration yet
+
+**Why first:** These are foundational changes that don't affect existing UI flow. Can be tested independently.
+
+### Phase 2: Dialog Stack (Modal behavior changes)
+4. **Dialog stack in root model** - Add stack field, update routing logic
+5. **Migrate SettingsPane to Dialog** - Refactor existing modal to new interface
+6. **Test dialog open/close/stack** - Verify Esc pops, input routing works
+
+**Why second:** Proves dialog stack architecture with existing modal before building new features.
+
+### Phase 3: Reusable Components (Building blocks)
+7. **CRUDList component** - Generic list wrapper, test with mock data
+8. **FormDialog** - Generic form wrapper using huh.Form
+9. **ConfirmDialog** - Simple yes/no confirmation dialog
+
+**Why third:** Build reusable components separately, test in isolation before integration.
+
+### Phase 4: CRUD Dialogs (New features)
+10. **BackendCRUDDialog** - Full add/edit/delete for backends
+11. **RoleCRUDDialog** - Full add/edit/delete for roles
+12. **WorkflowCRUDDialog** - Full add/edit/delete for workflows
+
+**Why fourth:** Each dialog uses components from Phase 3, tests full CRUD flow.
+
+### Phase 5: Config Propagation (Runtime updates)
+13. **ConfigChangedMsg** - Add event type, wire save → message
+14. **Component subscription** - AgentPane, DAGPane react to changes
+15. **Backend restart logic** - Handle backend config changes gracefully
+
+**Why last:** Most complex feature, depends on all dialogs working. Tests end-to-end flow.
 
 ## Scaling Considerations
 
 | Scale | Architecture Adjustments |
 |-------|--------------------------|
-| **1-5 agents** | Simple hub-and-spoke with goroutine-per-agent. In-memory state store. Single coordinator. No sharding needed. |
-| **5-20 agents** | Add work-stealing scheduler to prevent bottlenecks. Implement circuit breakers for subprocess failures. Add retry logic with exponential backoff. Metrics collection for observability. |
-| **20-100 agents** | Shard agents across multiple coordinator instances (consistent hashing). Replace in-memory state with persistent store (Redis/PostgreSQL). Add rate limiting per backend. Implement backpressure mechanisms. |
-| **100+ agents** | Move to event-driven architecture (replace channels with Kafka/NATS). Distributed DAG execution (each coordinator handles subgraph). Agent registry service for discovery. Centralized observability platform. |
+| **1-5 dialogs** | Current stack-based pattern is ideal |
+| **5-20 dialogs** | Consider dialog registry with ID-based lookup, lazy initialization |
+| **20+ dialogs** | Probably over-engineered for TUI, but could add dialog manager with lifecycle hooks |
 
 ### Scaling Priorities
 
-1. **First bottleneck: Coordinator saturation**
-   - **Symptoms:** High latency on task decomposition, queue buildup, slow DAG generation
-   - **Fix:** Cache common DAG patterns, add coordinator pool with load balancing, optimize LLM calls for decomposition (use smaller/faster models)
+1. **First bottleneck:** Dialog rendering performance with complex overlays
+   - **Fix:** Cache rendered dialogs, only re-render on input or size change
+   - **Fix:** Use lipgloss.Place() for efficient overlay composition
 
-2. **Second bottleneck: State store contention**
-   - **Symptoms:** Lock contention on history updates, slow reads/writes, memory pressure
-   - **Fix:** Shard state by agent ID, use append-only event log pattern, move to persistent store with read replicas
+2. **Second bottleneck:** Config file size with many backends/roles
+   - **Fix:** Lazy load config sections, pagination in CRUD lists
+   - **Fix:** Consider splitting into multiple files (backends.json, roles.json)
 
-3. **Third bottleneck: Subprocess overhead**
-   - **Symptoms:** Slow startup times, high fork cost, process limit exhaustion
-   - **Fix:** Process pool with keep-alive, replace subprocess with network API where possible, batch requests to same CLI instance
-
-4. **Fourth bottleneck: TUI rendering performance**
-   - **Symptoms:** Dropped frames, laggy input, high CPU on render
-   - **Fix:** Throttle event updates (only render every N ms), use virtual scrolling for large agent lists, offload rendering to background goroutine
-
-## Anti-Patterns
-
-### Anti-Pattern 1: Bag of Agents (No Orchestration)
-
-**What people do:** Create multiple agents without coordination. Let them communicate freely without structure. No task decomposition or dependency management.
-
-**Why it's wrong:** Agents descend into circular logic or "hallucination loops" where they echo and validate each other's mistakes. Without orchestrator, failures increase silent drift. 17x higher error rate in production systems.
-
-**Do this instead:** Use hub-and-spoke pattern with central coordinator. Define explicit handoff contracts (use structured outputs, JSON Schema). Implement orchestrator that monitors and validates outputs.
-
-### Anti-Pattern 2: Prompt Entanglement
-
-**What people do:** Embed agent coordination logic in system prompts. Use free-text instructions for handoffs. Rely on LLM to understand workflow structure.
-
-**Why it's wrong:** Free-text handoffs are main source of context loss. LLMs struggle to maintain consistency across turns. Makes workflows impossible to debug or version.
-
-**Do this instead:** Separate coordination logic from prompts. Use code for workflow structure (DAGs, state machines). Treat inter-agent transfers like public APIs with versioned contracts.
-
-### Anti-Pattern 3: Premature Complexity
-
-**What people do:** Build 10-agent system before validating single agent works. Use complex pattern when sequential orchestration suffices. Add agents without meaningful specialization.
-
-**Why it's wrong:** Adds unnecessary coordination overhead. More failure modes. Harder to debug. Lower reliability.
-
-**Do this instead:** Start with single agent. Add second agent only when clear specialization benefit. Prefer sequential → concurrent → hub-and-spoke → event-driven (in that order). Measure before adding complexity.
-
-### Anti-Pattern 4: Shared Mutable State
-
-**What people do:** Multiple agents read/write same data structures without synchronization. Pass entire conversation histories between agents. Store state in agent structs instead of centralized store.
-
-**Why it's wrong:** Race conditions and data corruption. Transactionally inconsistent data. Hard to reason about agent interactions. Memory leaks from unbounded histories.
-
-**Do this instead:** Use centralized State Store with proper locking. Pass immutable snapshots or specific fields (not entire history). Implement copy-on-write for shared data. Use channels for agent communication (Go principle: "Share memory by communicating").
-
-### Anti-Pattern 5: Synchronous Subprocess Calls
-
-**What people do:** Block goroutine waiting for subprocess response. No timeout handling. No circuit breaker for failing processes. Launch new process per request.
-
-**Why it's wrong:** One slow/hung process blocks entire agent. No failure isolation. Process churn overhead. Resource exhaustion.
-
-**Do this instead:** Async subprocess management with context cancellation. Implement timeouts on all subprocess calls. Use circuit breaker pattern (gobreaker library). Process pool with keep-alive. Graceful degradation when subprocess unavailable.
-
-### Anti-Pattern 6: Unbounded Goroutines
-
-**What people do:** Launch goroutine per task without limits. No worker pool. Assume Go can handle infinite concurrency.
-
-**Why it's wrong:** OOM from too many goroutines. Scheduler overhead. Context switching thrashing. System becomes unresponsive.
-
-**Do this instead:** Use worker pool with bounded goroutines (pattern from WorkStealingScheduler above). Implement backpressure (block task submission when queue full). Monitor goroutine count as health metric. Set GOMAXPROCS appropriately.
-
-### Anti-Pattern 7: No Observability
-
-**What people do:** No logging of agent interactions. No metrics on task duration. Can't trace request through agent pipeline. Silent failures.
-
-**Why it's wrong:** Impossible to debug production issues. Can't identify bottlenecks. Don't know which agents are failing. Agent systems "fail quietly" without obvious errors.
-
-**Do this instead:** Instrument all agent operations with structured logging. Track metrics (task duration, error rate, token usage per agent). Implement distributed tracing (correlation ID through agent pipeline). Publish events for audit trail. Dashboard for real-time monitoring.
-
-## Integration Points
-
-### External Services
-
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| **Claude Code CLI** | Subprocess with JSON-RPC over stdin/stdout | Use buffered reader, line-by-line parsing. Handle process lifecycle (start, monitor, restart). Implement timeout (default 2min via context). |
-| **Fantasy (charm.land/fantasy)** | In-process library | Direct function calls, no IPC overhead. Abstracts OpenAI, Anthropic, Google, AWS Bedrock, Azure, VertexAI. Use for simple agents. |
-| **MCP Servers** | Network HTTP or stdio transport | Client-server architecture. MCP client in orchestrator, MCP server exposes tools/resources. JSON-RPC 2.0 protocol. Prefer stdio for local, SSE for remote. |
-| **LLM APIs** | HTTP REST/streaming | Use http.Client with timeouts. Implement retry with exponential backoff. Circuit breaker for failing endpoints. Connection pooling. |
-| **State Store** | Direct library (in-memory) or Redis (persistent) | Start with map[string][]Message in-memory. Move to Redis when scaling beyond single process. Use pub/sub for state change notifications. |
-
-### Internal Boundaries
-
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| **Coordinator ↔ Agent** | Interface calls (sync) or channel messages (async) | Sync for request/response. Async for fire-and-forget tasks. Agent interface hides backend complexity. |
-| **Agent ↔ Backend** | Backend interface (adapter pattern) | Backend abstracts transport (in-process, subprocess, network). Agent doesn't know backend type. |
-| **Subprocess Manager ↔ CLI** | stdin/stdout pipes with JSON-RPC | Bidirectional protocol. Manager maintains correlation between requests/responses. Handle partial reads. |
-| **Scheduler ↔ Worker Pool** | Go channels (buffered) | Scheduler enqueues tasks to channel. Workers dequeue and execute. Channel size = max queued tasks. |
-| **Agent ↔ Event Bus** | Pub/sub via channels | Agent publishes events (fire-and-forget). Event Bus fans out to subscribers. Buffered channels prevent blocking. |
-| **TUI ↔ Coordinator** | Bubble Tea Cmd/Msg pattern | TUI sends tea.Cmd to coordinator. Coordinator returns tea.Msg with results. All state changes via messages (MUV architecture). |
-| **State Store ↔ Components** | Read/write API with mutex | Synchronous reads/writes with proper locking. Subscribe API for change notifications. Copy-on-read for safety. |
-
-### Extending Crush Architecture
-
-**Current Crush Components (Reuse):**
-- `SessionAgent` interface → **Keep, extend with role metadata**
-- `Coordinator` with `agents map[string]Agent` → **Keep, add scheduler field**
-- Tool system → **Reuse as-is**
-- Fantasy LLM abstraction → **Wrap in Backend adapter**
-- Bubble Tea TUI → **Extend with split-pane layout**
-
-**New Components (Add):**
-- `DAGScheduler` → **New package `coordinator/`**
-- `Backend` interface → **New package `backend/`** with Fantasy, Subprocess, Network adapters
-- `SubprocessManager` → **New package `subprocess/`**
-- `EventBus` → **New package `events/`**
-- `StateStore` → **New package `state/`**
-- Split-pane views → **Extend `tui/` with `layout.go` and `agent_view.go`**
-
-**Migration Path:**
-1. **Phase 1:** Extract Backend interface from SessionAgent. Create FantasyBackend adapter wrapping existing Fantasy code. No behavior change, just refactoring.
-
-2. **Phase 2:** Add SubprocessBackend adapter. Implement JSON-RPC protocol. Test with single subprocess agent alongside existing Fantasy agents.
-
-3. **Phase 3:** Add Scheduler to Coordinator. Initially run tasks sequentially (no parallelism). DAG with single path.
-
-4. **Phase 4:** Implement parallel DAG execution with goroutine pool. Add work-stealing if needed.
-
-5. **Phase 5:** Add EventBus. Agents publish progress events. Coordinator subscribes for monitoring.
-
-6. **Phase 6:** Extend TUI with split-pane layout. One pane per active agent. Layout manager handles resizing.
-
-7. **Phase 7:** Add StateStore for conversation persistence. Migrate in-memory history to store.
-
-8. **Phase 8:** Add circuit breakers, retries, timeouts for resilience.
-
-## Build Order Recommendations
-
-**Dependencies determine build order:**
-
-```
-1. Backend Interface & Adapters
-   ├── Required by: SessionAgent refactor
-   └── Enables: Multiple agent types
-
-2. EventBus
-   ├── Required by: Progress monitoring
-   └── Enables: Decoupled communication
-
-3. StateStore
-   ├── Required by: Conversation persistence
-   └── Enables: Shared state across agents
-
-4. SubprocessManager
-   ├── Required by: CLI integration
-   ├── Depends on: Backend Interface
-   └── Enables: External tool support
-
-5. DAG Scheduler
-   ├── Required by: Parallel execution
-   ├── Depends on: Backend Interface, StateStore
-   └── Enables: Complex workflows
-
-6. Extended TUI
-   ├── Required by: Multi-agent visibility
-   ├── Depends on: EventBus, Coordinator
-   └── Enables: Split-pane monitoring
-
-7. Resilience Patterns
-   ├── Required by: Production readiness
-   ├── Depends on: All above
-   └── Enables: Circuit breakers, retries, timeouts
-```
-
-**Suggested Implementation Order:**
-1. Backend abstraction (refactor existing Fantasy code)
-2. Subprocess manager (enables Claude Code integration)
-3. Event bus (enables progress monitoring)
-4. State store (enables conversation persistence)
-5. Basic DAG scheduler (sequential first, then parallel)
-6. Split-pane TUI (visibility into agents)
-7. Work-stealing scheduler (performance optimization)
-8. Resilience patterns (production hardening)
-
-**Each phase produces working system (no big-bang integration).**
+3. **Third bottleneck:** Config propagation causing visible lag
+   - **Fix:** Debounce config saves, batch multiple edits
+   - **Fix:** Make propagation async with loading indicators
 
 ## Sources
 
-### Multi-Agent Orchestration Patterns
-- [AI Agent Orchestration Patterns - Azure Architecture Center](https://learn.microsoft.com/en-us/azure/architecture/ai-ml/guide/ai-agent-design-patterns)
-- [Top 10+ Agentic Orchestration Frameworks & Tools in 2026](https://aimultiple.com/agentic-orchestration)
-- [Choosing the right orchestration pattern for multi agent systems](https://www.kore.ai/blog/choosing-the-right-orchestration-pattern-for-multi-agent-systems)
-- [AI Agent Orchestration in 2026: Coordination, Scale and Strategy](https://kanerika.com/blogs/ai-agent-orchestration/)
-- [Choosing the Right Multi-Agent Architecture](https://blog.langchain.com/choosing-the-right-multi-agent-architecture/)
-
-### Hub-and-Spoke vs Peer-to-Peer Topologies
-- [Bot-to-Bot: Centralized (Hub-and-Spoke) Multi-Agent Topology — Part 2](https://medium.com/@ratneshyadav_26063/bot-to-bot-centralized-hub-and-spoke-multi-agent-topology-part-2-87b46ec7e1bc)
-- [Hub & Spoke: The Operating System for AI-Enabled Enterprise Architecture](https://www.architectureandgovernance.com/artificial-intelligence/hub-spoke-the-operating-system-for-ai-enabled-enterprise-architecture/)
-
-### DAG Task Scheduling
-- [Multi-agent Reinforcement Learning-based Adaptive Heterogeneous DAG Scheduling](https://dl.acm.org/doi/10.1145/3610300)
-- [Building Intelligent Agents with Dynamic DAGs: A Modular Approach to AI Design](https://medium.com/@alexfiorenza2012/building-intelligent-agents-with-dynamic-dags-a-modular-approach-to-ai-design-9f0cff8e550d)
-- [TDAG: A Multi-Agent Framework based on Dynamic Task Decomposition and Agent Generation](https://arxiv.org/abs/2402.10178)
-
-### Subprocess Management
-- [Running Claude Code from Windows CLI: A Practical Guide](https://dstreefkerk.github.io/2026-01-running-claude-code-from-windows-cli/)
-- [How to stream lines from stdout with subprocess](https://alexwlchan.net/til/2025/subprocess-line-by-line/)
-- [Python Subprocess: Reading Stdout and Stderr Separately While Preserving Order with Asyncio](https://copyprogramming.com/howto/python-asyncio-subprocess-write-stdin-and-read-stdout-stderr-continuously)
-
-### Multi-Turn Conversation State Management
-- [Multi-agent Conversation Framework | AutoGen 0.2](https://microsoft.github.io/autogen/0.2/docs/Use-Cases/agent_chat/)
-- [The Complete Guide to Managing Conversation History in Multi-Agent AI Systems](https://medium.com/@_Ankit_Malviya/the-complete-guide-to-managing-conversation-history-in-multi-agent-ai-systems-0e0d3cca6423)
-- [Context Window Management: Strategies for Long-Context AI Agents and Chatbots](https://www.getmaxim.ai/articles/context-window-management-strategies-for-long-context-ai-agents-and-chatbots/)
-
-### Bubble Tea TUI Architecture
-- [GitHub - charmbracelet/bubbletea: A powerful little TUI framework](https://github.com/charmbracelet/bubbletea)
-- [Shifoo - Multi View Interfaces in Bubble Tea](https://shi.foo/weblog/multi-view-interfaces-in-bubble-tea)
+### Bubble Tea Architecture
+- [Bubble Tea GitHub Repository](https://github.com/charmbracelet/bubbletea)
 - [Tips for building Bubble Tea programs](https://leg100.github.io/en/posts/building-bubbletea-programs/)
+- [Bubble Tea v2 Discussion](https://github.com/charmbracelet/bubbletea/discussions/1374)
 
-### Framework Comparisons
-- [CrewAI vs LangGraph vs AutoGen: Choosing the Right Multi-Agent AI Framework](https://www.datacamp.com/tutorial/crewai-vs-langgraph-vs-autogen)
-- [Best AI Agent Frameworks in 2026: CrewAI vs. AutoGen vs. LangGraph](https://medium.com/@kia556867/best-ai-agent-frameworks-in-2026-crewai-vs-autogen-vs-langgraph-06d1fba2c220)
-- [Agent Orchestration 2026: LangGraph, CrewAI & AutoGen Guide](https://iterathon.tech/blog/ai-agent-orchestration-frameworks-2026)
+### Dialog Overlay Patterns
+- [Overlay Composition Using Bubble Tea - Leon Mika](https://lmika.org/2022/09/24/overlay-composition-using.html)
+- [Bubble Tea Overlay Package](https://pkg.go.dev/github.com/quickphosphat/bubbletea-overlay)
+- [Crush TUI Architecture](https://deepwiki.com/charmbracelet/crush/5.1-tui-architecture)
 
-### Claude Code SDK
-- [Run Claude Code programmatically - Claude Code Docs](https://code.claude.com/docs/en/headless)
-- [Embedding Claude Code SDK in Applications](https://blog.bjdean.id.au/2025/11/embedding-claide-code-sdk-in-applications/)
-- [Claude Agent SDK (Python) Learning Guide](https://redreamality.com/blog/claude-agent-sdk-python-/)
+### List Component & CRUD
+- [Bubbles List Component](https://pkg.go.dev/github.com/charmbracelet/bubbles/list)
+- [Bubbles List README](https://github.com/charmbracelet/bubbles/blob/master/list/README.md)
 
-### Go Concurrency Patterns
-- [Goroutines in Go: A Practical Guide to Concurrency](https://getstream.io/blog/goroutines-go-concurrency-guide/)
-- [How to Use Goroutines and Channels for Concurrent Processing](https://oneuptime.com/blog/post/2026-01-07-go-goroutines-channels-concurrency/view)
-- [Go Concurrency Patterns: Pipelines and cancellation](https://go.dev/blog/pipelines)
+### Lipgloss Theme System
+- [Lipgloss GitHub Repository](https://github.com/charmbracelet/lipgloss)
+- [Building Terminal UI with Go, Bubble Tea, and Lipgloss](https://www.grootan.com/blogs/building-an-awesome-terminal-user-interface-using-go-bubble-tea-and-lip-gloss/)
 
-### Work-Stealing Scheduler
-- [Building a Multithreaded Work-Stealing Task Scheduler in Go](https://medium.com/@nathanbcrocker/building-a-multithreaded-work-stealing-task-scheduler-in-go-843861b878be)
-- [Go's work-stealing scheduler](https://rakyll.org/scheduler/)
-- [Scheduling In Go : Part II - Go Scheduler](https://www.ardanlabs.com/blog/2018/08/scheduling-in-go-part2.html)
-
-### Model Context Protocol
-- [Specification - Model Context Protocol](https://modelcontextprotocol.io/specification/2025-11-25)
-- [What Is the Model Context Protocol (MCP) and How It Works](https://www.descope.com/learn/post/mcp)
-- [Getting Started With MCP Servers: A Technical Deep Dive](https://neo4j.com/blog/developer/model-context-protocol/)
-
-### Charm Fantasy
-- [GitHub - charmbracelet/fantasy: Build AI agents with Go](https://github.com/charmbracelet/fantasy)
-- [AI and LLM Integration | charmbracelet/crush](https://deepwiki.com/charmbracelet/crush/4-ai-and-llm-integration)
-- [DraganSr: GoLang powered AI tools: Charm Crush, Fantasy](https://blog.dragansr.com/2025/11/golang-powered-ai-tools-charm-crush.html)
-
-### Event-Driven Architecture
-- [GitHub - ThreeDotsLabs/watermill: Building event-driven applications the easy way in Go](https://github.com/ThreeDotsLabs/watermill)
-- [Go for Event-Driven Architecture: Designing Pub/Sub Systems with NATS and Redis Streams](https://levelup.gitconnected.com/go-for-event-driven-architecture-designing-pub-sub-systems-with-nats-and-redis-streams-1adcd10b5fa1)
-- [Golang Event-Driven Architecture Guide](https://blog.jealous.dev/mastering-event-driven-architecture-in-golang-comprehensive-insights)
-
-### JSON-RPC in Go
-- [jsonrpc2 package - golang.org/x/tools/internal/jsonrpc2](https://pkg.go.dev/golang.org/x/tools/internal/jsonrpc2)
-- [GitHub - deinstapel/go-jsonrpc: Bidirectional JSON-RPC Library for Go](https://github.com/deinstapel/go-jsonrpc)
-- [GitHub - cenkalti/rpc2: Bi-directional RPC in Go](https://github.com/cenkalti/rpc2)
-
-### Anti-Patterns and Pitfalls
-- [Anti-Patterns in Multi-Agent Gen AI Solutions: Enterprise Pitfalls and Best Practices](https://medium.com/@armankamran/anti-patterns-in-multi-agent-gen-ai-solutions-enterprise-pitfalls-and-best-practices-ea39118f3b70)
-- [Why Your Multi-Agent System is Failing: Escaping the 17x Error Trap of the "Bag of Agents"](https://towardsdatascience.com/why-your-multi-agent-system-is-failing-escaping-the-17x-error-trap-of-the-bag-of-agents/)
-- [Agent Systems Fail Quietly: Why Orchestration Matters More Than Intelligence](https://bnjam.dev/posts/agent-orchestration/agent-systems-fail-quietly.html)
-
-### Resilience Patterns
-- [GitHub - sony/gobreaker: Circuit Breaker implemented in Go](https://github.com/sony/gobreaker)
-- [Resilient Go Microservices with Circuit Breakers](https://medium.com/@irem.gunay/resilient-go-microservices-with-circuit-breakers-4780c397e6f6)
-- [Resilience Design Patterns: Retry, Fallback, Timeout](https://www.codecentric.de/en/knowledge-hub/blog/resilience-design-patterns-retry-fallback-timeout-circuit-breaker)
+### Config and State Management
+- [Synchronized Output Mode 2026](https://github.com/charmbracelet/bubbletea/discussions/1320)
+- [Bubble Tea State Machine Pattern](https://zackproser.com/blog/bubbletea-state-machine)
 
 ---
-*Architecture research for: Multi-Agent AI Orchestration System*
-*Researched: 2026-02-10*
+*Architecture research for: Dialog overlay system and dynamic config integration*
+*Researched: 2026-02-11*

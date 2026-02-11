@@ -1,212 +1,224 @@
 # Project Research Summary
 
-**Project:** Orchestrator — Multi-Agent AI Coding Orchestrator (Crush Fork)
-**Domain:** Go-based TUI multi-agent orchestration for agentic coding
-**Researched:** 2026-02-10
+**Project:** Dynamic Config Management via Dialog System
+**Domain:** TUI config management with modal CRUD interfaces
+**Researched:** 2026-02-11
 **Confidence:** HIGH
 
 ## Executive Summary
 
-This project is a hub-and-spoke multi-agent orchestrator built as a fork of Crush (Charmbracelet). The research confirms this is a well-charted domain in 2026: the Charm ecosystem (Bubble Tea v2, Fantasy, Lipgloss) provides a production-grade TUI and LLM abstraction foundation, and Crush itself already scaffolds multi-agent support (the `Coordinator` struct, `agents map[string]SessionAgent`, per-agent tool lists). The recommended approach is to extend Crush through clean interface boundaries rather than rewriting its internals, using an adapter-based backend abstraction to unify in-process LLM calls (Fantasy), subprocess CLIs (Claude Code, Codex), and OpenAI-compatible network APIs (local LLMs) behind a single `Backend` interface. DAG-based task scheduling with `errgroup` for bounded parallel execution and Go's standard `os/exec` for subprocess management round out the core stack.
+This project extends an existing Bubble Tea v2 TUI orchestrator with dynamic config management through dialog-based CRUD interfaces for Backends/Roles/Workflows. The recommended approach uses a dialog stack pattern proven in production TUIs like Crush, avoiding external overlay libraries in favor of custom infrastructure built with existing Charmbracelet components (bubbles/list, huh forms, lipgloss compositing).
 
-The critical risk is **fork drift from upstream Crush**. Every research dimension reinforces this: the architecture research recommends wrapping Crush's existing code rather than modifying it; the pitfalls research ranks fork drift as a HIGH recovery cost item (months of work if it happens); and the stack research notes that Fantasy compatibility with newer OpenAI SDK versions is already uncertain. The mitigation is a "Phase 0" fork strategy that establishes extension points, keeps Crush core files unmodified, and maintains weekly rebase discipline from day one. The second major risk cluster is subprocess management — pipe deadlocks, zombie processes, signal propagation failure, and orphaned agents are all well-documented failure modes that must be solved in the very first implementation phase before any multi-agent logic is built.
+The architecture centers on three core patterns: (1) dialog stack with interface-based routing for modal keyboard isolation, (2) generic CRUDList component wrapping bubbles/list for consistent CRUD UX, and (3) centralized theme system using cached lipgloss styles. This design integrates cleanly with the existing event bus and pane architecture without disrupting running task execution.
 
-The feature research validates the MVP scope: agent role definitions, basic DAG scheduling, parallel execution (2-4 agents), split-pane TUI, backend abstraction (cloud + local), error recovery, session persistence, and git worktree isolation. This is a focused, achievable v1 that proves the core hypothesis — hub-and-spoke orchestration outperforms serial single-agent coding. Advanced features (hierarchical memory, dynamic agent spawning, MCP/A2A protocols, specialist auto-review) are correctly deferred to v2+. The anti-features list is equally important: avoid real-time multi-agent file collaboration, unlimited agent spawning, full conversation history passing between agents, and fully autonomous operation without human gates.
+Critical risks include keyboard event leakage (dialogs must intercept ALL keys before pane routing), config schema migration (Provider/Agent → Backend/Role requires backward-compatible UnmarshalJSON), and form state persistence (huh forms must be rebuilt fresh on each modal open). These pitfalls are all preventable with upfront architectural discipline in Phase 1-2, avoiding expensive retrofits later.
 
 ## Key Findings
 
 ### Recommended Stack
 
-The Charm ecosystem is the clear choice, providing a cohesive, battle-tested toolkit that Crush already uses. Fantasy v0.7.1 handles multi-provider LLM abstraction for OpenAI, Anthropic, Google, Bedrock, Azure, and OpenAI-compatible endpoints. The stack is Go-native with zero C dependencies (CGo-free SQLite via ncruces/go-sqlite3).
+The research recommends NO new external dependencies beyond what's already validated (Bubble Tea v2, Lipgloss v2, Huh, Bubbles). Existing libraries provide all needed functionality.
 
-**Core technologies:**
-- **Bubble Tea v2 + Bubbles v2 + Lipgloss v2**: TUI framework — Elm Architecture, 25k+ apps in production, split-pane layout via viewport component
-- **Fantasy v0.7.1**: Multi-provider LLM abstraction — unified API across all required backends, OpenAI-compatible layer for local LLMs
-- **errgroup (x/sync)**: Goroutine orchestration — context-based cancellation, bounded concurrency via SetLimit(), idiomatic Go
-- **os/exec (stdlib)**: Subprocess management — sufficient for Claude Code/Codex CLI execution with proper pipe handling patterns
-- **ncruces/go-sqlite3**: Persistence — CGo-free, cross-platform, matches Crush's existing dependency profile
-- **MCP Go SDK v1.2.0**: Tool/context protocol — official SDK maintained with Google, for standardized tool integration
-- **AkihiroSuda/go-dag or heimdalr/dag**: DAG scheduling — lightweight, minimal dependencies (prototype both before committing)
+**Core additions (custom implementations):**
+- Dialog stack infrastructure: Custom DialogModel interface with stack management, modal input routing, ESC handling, lipgloss.Place overlay composition — proven in Crush TUI, external libraries (bubbletea-overlay) lack dialog-specific features
+- CRUDList component: Generic wrapper around bubbles/list (already installed v1.0.0) with add/edit/delete operations — reusable across Backend/Role/Workflow lists
+- Centralized theme: Expand internal/tui/styles.go with lipgloss.AdaptiveColor palette and named style variables — no external theme library needed
 
-**Open question:** Fantasy v0.7.1 uses openai-go v2 (Crush pins v2.7.1), but openai-go v3 is latest. Verify Fantasy compatibility with v3 before upgrading. Also verify whether openai-go v3 supports custom base URLs for local LLM endpoints.
+**What NOT to add:**
+- Evertras/bubble-table: No confirmed Bubble Tea v2 compatibility, use bubbles/list instead
+- bubbletea-overlay: Only provides basic compositing, lacks dialog stack/focus management
+- purpleclay/lipgloss-theme: External dependency for simple need, not justified
 
 ### Expected Features
 
-**Must have (table stakes / MVP):**
-- Agent role definitions via YAML config (system prompt, model, backend, tools per role)
-- Task queue with DAG scheduling and dependency resolution
-- Parallel execution of 2-4 agents with git worktree isolation
-- Split-pane TUI with real-time agent monitoring and vim-style navigation
-- Backend abstraction covering Claude Code, Codex, and local LLMs
-- Error recovery with exponential backoff and circuit breakers
-- Session/context persistence surviving crashes and interruptions
-- Git integration for agent isolation (worktrees) and work output (commits)
+**Must have (table stakes) - Phase 1:**
+- List view for Backends/Roles/Workflows with keyboard navigation (j/k, Enter, ESC)
+- Create/edit/delete items via modal forms
+- Visual selection indicators and empty state messaging
+- Form validation preventing invalid configs
+- Confirmation prompts for destructive delete actions
+- Global vs project config save target selection
 
-**Should have (v1.x after validation):**
-- Local LLM support (Ollama, LM Studio) via OpenAI-compatible API
-- Inter-agent message passing (pub-sub beyond orchestrator relay)
-- Smart task rebalancing when agents block
-- Context compression for long sessions
-- Quality gate orchestration (coverage, security scan thresholds)
+**Should have (competitive) - Phase 2:**
+- Search/filter in lists when items exceed 10 (bubbles/list filtering OOTB)
+- Help overlay (?) showing keybindings
+- Multi-step wizard for complex role creation
+- Duplicate/clone existing items
+- Context-aware defaults (pre-fill provider based on backend type)
 
-**Defer (v2+):**
-- Specialist-agent auto-review panels (multi-model review)
-- Hierarchical memory with knowledge graph
-- Dynamic agent spawning based on DAG state
-- MCP + A2A protocol interoperability
-- Cross-session project memory
-- Multi-backend routing per individual agent
+**Defer to v2+:**
+- Import/export role templates
+- Inline documentation tooltips
+- Undo/redo on config changes
+- Keyboard shortcut customization
+
+**Anti-features to avoid:**
+- Mouse support (breaks keyboard flow, terminal inconsistency)
+- Real-time validation during typing (interrupts flow, use blur validation)
+- Auto-save on every change (race conditions, no rollback)
+- Nested dialog modals (focus management nightmare, use multi-step forms instead)
 
 ### Architecture Approach
 
-The architecture follows a four-layer design: TUI Layer (Bubble Tea MUV) at top, Orchestration Layer (Coordinator hub + Agent spokes + DAG Scheduler) in the middle, Backend Abstraction Layer (adapter pattern: Fantasy in-process, subprocess CLI, network API) below, and State Management (task graph, conversation history, metrics) at the foundation. An Event Bus decouples all layers via pub/sub channels. The project structure isolates concerns into `coordinator/`, `agent/`, `backend/`, `subprocess/`, `state/`, `events/`, `tui/`, and `tools/` packages under `internal/`.
+The architecture extends the existing split-pane TUI with a dialog overlay layer that doesn't disrupt the event bus or running task execution. Five proven patterns form the foundation.
 
 **Major components:**
-1. **Coordinator (Hub)** — task decomposition into DAG, agent lifecycle management, dependency resolution, result aggregation
-2. **Agent + Backend Adapters** — interface-based abstraction; SessionAgent wraps Backend (Fantasy, Subprocess, Network) with conversation state
-3. **DAG Scheduler** — topological sort for execution order, errgroup for bounded parallel goroutines, work-stealing for load balancing
-4. **Subprocess Manager** — JSON-RPC 2.0 over stdin/stdout for Claude Code and Codex CLI, process groups for signal propagation
-5. **Event Bus** — channel-based pub/sub connecting agents to TUI and metrics without coupling
-6. **State Store** — centralized conversation history, task results, and agent metrics with proper locking
-7. **TUI Manager** — split-pane layout, per-agent viewport components, focus-based input delegation
+1. Dialog Stack Manager: Maintains []DialogModel LIFO stack in root model, routes input to topmost dialog with priority over panes, handles Esc-to-pop semantics, composes overlays using lipgloss.Place
+2. Generic CRUDList[T]: Reusable component wrapping bubbles/list with add/edit/delete operations, adapter functions for list.Item interface, integrated form/confirmation dialogs
+3. Centralized Theme System: Single Theme struct with adaptive colors and pre-computed lipgloss styles, passed to all dialogs/panes via constructor, prevents style recomputation lag
+4. Config Change Propagation: ConfigChangedMsg event after saves, root model broadcasts to components, allows hot-reload without restart (backends require reconnect, roles/workflows update display only)
+5. Overlay Composition Pattern: Base panes rendered first, dialogs layered on top using lipgloss.Place with center positioning, no z-index conflicts
+
+**Integration strategy:**
+- Migrate existing SettingsPaneModel to DialogModel interface first (proves pattern)
+- Keep AgentPane/DAGPane unchanged (no config editing)
+- Config types renamed (Provider→Backend, Agent→Role) with backward-compatible migration
+- Event bus continues unchanged (ConfigChangedMsg is just another event)
 
 ### Critical Pitfalls
 
-1. **Subprocess pipe deadlocks** — Always start goroutines reading BOTH stdout and stderr BEFORE `cmd.Start()`. Never call `cmd.Wait()` until pipes are fully consumed. This is the most common Go subprocess bug and will hang the orchestrator silently.
+1. **Keyboard Event Leakage** — Modal input can leak to background panes causing unintended actions (q quits app, tab cycles panes). Prevention: Early-return guard in root Update() BEFORE any pane routing. Dialog stack checked first, all keys routed to topmost dialog when open. Test every shortcut with modal active.
 
-2. **Fork drift from upstream Crush** — Keep Crush core files unmodified. Use interface injection and wrapper packages. Rebase weekly. Document every deviation. Submit upstream PRs for needed hooks. Recovery cost is months of work if this is neglected.
+2. **Form State Not Resetting** — Huh forms maintain internal state across visibility toggles. Opening modal second time shows completed/disabled fields. Prevention: REBUILD form fresh on every modal open, never reuse form instances. Don't rely on form.Init() to reset state. Huh issue #319 confirms this requirement.
 
-3. **Multi-agent file conflict cascades** — Agents silently overwrite each other's work. Use git worktrees for isolation AND implement file-level lock registry in the DAG scheduler. Pre-declare file targets in task metadata.
+3. **Config Migration Breaking Existing Configs** — Renaming Provider→Backend/Agent→Role causes old configs to unmarshal as empty structs, silently losing user settings. Prevention: Implement custom UnmarshalJSON to detect old schema, migrate fields, write back new format. Test with v1 config fixtures.
 
-4. **Signal propagation failure** — `os.Process.Kill()` only kills the direct child, not its subprocess tree. Use `syscall.SysProcAttr{Setpgid: true}` and kill the entire process group. Without this, Ctrl+C leaves orphaned agents consuming API credits.
+4. **Import Cycles from Config Refactor** — Creating config/migration package causes cycles: config → migration → config. Prevention: Keep migration logic IN config package, use type aliases during transition, update all 24 consuming files in single phase.
 
-5. **Cascading failure without isolation** — One transient API timeout should not abort the entire workflow. Classify failures (hard/soft/skip), isolate dependency chains, implement retry with backoff for soft failures, checkpoint completed work for resume.
+5. **Lipgloss Style Recomputation** — Building styles in View() adds 5-10ms per frame, causes scrolling stutter. Prevention: Compute styles once at init/resize, cache in model struct, only recompute on size/focus change. Profile with BUBBLETEA_PROFILE=1.
+
+6. **Dialog Overlay Z-Index Conflicts** — Modal borders clipped by background panes or background text visible through modal. Prevention: Render background first at full size, then Place() overlay as separate layer. Don't use JoinVertical for composition.
+
+7. **CRUD List Cursor Lost** — Editing item 5 in list, closing modal returns cursor to index 0. Prevention: Preserve list model instance across modal transitions, store cursor position explicitly, restore on modal close.
+
+8. **Validation Errors Persist** — Opening new modal shows validation errors from previous form. Prevention: Fresh field binding variables per form rebuild, don't reuse model-level strings across different dialogs.
 
 ## Implications for Roadmap
 
-Based on combined research, the build order is determined by three forces: (1) dependency chains from architecture research, (2) pitfall prevention timing from pitfalls research, and (3) feature groupings from feature research. The architecture research and pitfalls research strongly agree on ordering: subprocess management and fork strategy must come first.
+Based on research, suggested phase structure follows dependency hierarchy and incremental validation:
 
-### Phase 0: Fork Strategy and Extension Architecture
-**Rationale:** Pitfalls research identifies fork drift as the highest-cost risk (months of recovery). Architecture research recommends wrapping Crush via interfaces, not modifying core files. This must be designed before writing any orchestrator code.
-**Delivers:** Extension point architecture, documented fork maintenance process, verified clean rebase
-**Addresses:** Fork drift prevention (Pitfall 3)
-**Avoids:** Months of rework from diverging too far from upstream Crush
+### Phase 1: Dialog System Foundation
+**Rationale:** Core modal infrastructure must be solid before adding CRUD features. Keyboard isolation and overlay rendering are foundational — getting these wrong means rearchitecting later.
+**Delivers:** Dialog interface, stack manager in root model, overlay composition using lipgloss.Place
+**Addresses:** Enables all modal-based features from FEATURES.md
+**Avoids:** Pitfall #1 (keyboard leakage), Pitfall #6 (z-index conflicts)
+**Complexity:** Medium — proven pattern from Crush, but critical to implement correctly
 
-### Phase 1: Core Subprocess Management and Backend Abstraction
-**Rationale:** Architecture research shows Backend interface is the foundation everything depends on. Pitfalls research demands subprocess pipe handling, process groups, and signal propagation be solved first (Pitfalls 1, 2, 9). Three of the ten critical pitfalls must be addressed here.
-**Delivers:** Backend interface with Fantasy adapter (in-process), Subprocess adapter (Claude Code CLI), process lifecycle management with proper cleanup
-**Addresses:** Backend abstraction (table stakes), subprocess communication
-**Avoids:** Pipe deadlocks (Pitfall 1), zombie processes (Pitfall 2), orphaned agents (Pitfall 9)
-**Uses:** os/exec, Fantasy, syscall.SysProcAttr, context.WithCancel
+### Phase 2: Settings Dialog Migration
+**Rationale:** Validates dialog stack pattern with existing modal before building new features. Low-risk way to test architecture decisions.
+**Delivers:** SettingsPaneModel converted to SettingsDialog implementing Dialog interface
+**Uses:** Dialog stack from Phase 1, existing huh form
+**Avoids:** Pitfall #2 (form state reset) — fix existing bug during migration
+**Complexity:** Low — refactoring existing code to new interface
 
-### Phase 2: Agent Definitions and DAG Scheduler
-**Rationale:** Architecture research shows agent abstraction + scheduler enable the core orchestration loop. Feature research identifies agent roles and DAG scheduling as P1 table stakes. Pitfalls research requires cycle detection and file locking before parallel execution.
-**Delivers:** YAML-based agent role config, SessionAgent with role metadata, DAG construction with topological sort validation, resource locking, failure classification and isolation
-**Addresses:** Agent role definitions, task queue/DAG scheduling, error recovery foundations
-**Avoids:** DAG deadlocks from cycles (Pitfall 6), file conflicts (Pitfall 4), cascading failures (Pitfall 7)
-**Uses:** errgroup, go-dag or heimdalr/dag, YAML config
+### Phase 3: Config Type Refactor
+**Rationale:** Schema migration must happen BEFORE building CRUD interfaces. Can't build Backend CRUD while config types are still called Providers.
+**Delivers:** Provider→Backend, Agent→Role rename with backward-compatible migration
+**Implements:** Custom UnmarshalJSON for config loading
+**Avoids:** Pitfall #3 (breaking existing configs), Pitfall #4 (import cycles)
+**Complexity:** Medium — touches 24 files, needs careful migration testing
 
-### Phase 3: Parallel Execution with Git Isolation
-**Rationale:** Feature research identifies parallel execution as the core value proposition. Architecture research shows this requires backend adapters + scheduler + git worktrees working together. Cannot be built without Phase 1-2 foundations.
-**Delivers:** Parallel agent execution (2-4 agents), git worktree management, bounded concurrency, task result collection
-**Addresses:** Parallel agent execution, git integration for isolation
-**Uses:** errgroup.SetLimit(), git worktree commands, work-stealing scheduler (if needed)
+### Phase 4: Centralized Theme System
+**Rationale:** Establish theme pattern before building multiple dialogs. Prevents inconsistent styling and performance issues from ad-hoc styles.
+**Delivers:** Theme struct with adaptive colors, pre-computed styles, passed to all components
+**Uses:** Lipgloss v2 AdaptiveColor, style caching
+**Avoids:** Pitfall #5 (style recomputation lag)
+**Complexity:** Low — refactoring existing styles.go
 
-### Phase 4: Event Bus and TUI Integration
-**Rationale:** Architecture research positions the Event Bus as the decoupling layer between agents and TUI. Feature research lists real-time TUI monitoring as P1. Pitfalls research warns about TUI state desync (Pitfall 8) — solving it requires proper event-driven state synchronization from the start.
-**Delivers:** Channel-based event bus, split-pane TUI layout with per-agent viewports, real-time status updates, vim-style navigation, agent status tracking
-**Addresses:** Real-time TUI monitoring, agent status tracking
-**Avoids:** TUI state desync (Pitfall 8)
-**Uses:** Bubble Tea v2, Bubbles viewport, Lipgloss v2 layout
+### Phase 5: Backend CRUD Dialog
+**Rationale:** First CRUD implementation establishes patterns for Role/Workflow. Backends are simplest (no dependencies on other types).
+**Delivers:** BackendCRUDDialog with list view, create/edit/delete forms, confirmation prompts
+**Uses:** Dialog stack (Phase 1), Theme (Phase 4), BackendConfig (Phase 3)
+**Implements:** CRUDList[BackendConfig], FormDialog, ConfirmDialog
+**Avoids:** Pitfall #7 (cursor position), Pitfall #8 (validation persistence)
+**Complexity:** High — first full CRUD implementation, creates reusable patterns
 
-### Phase 5: State Management and Session Persistence
-**Rationale:** Feature research lists session persistence as P1 table stakes. Pitfalls research warns about context drift (Pitfall 5) and lost partial work (Pitfall 10). Architecture research defines a centralized State Store with conversation history and task checkpointing.
-**Delivers:** Persistent conversation history, task checkpointing, durable state separate from LLM context, crash recovery with resume-from-checkpoint
-**Addresses:** Session/context persistence, error recovery (full)
-**Avoids:** Context window drift (Pitfall 5), lost partial work (Pitfall 10)
-**Uses:** ncruces/go-sqlite3, goose migrations, sqlc
+### Phase 6: Role CRUD Dialog
+**Rationale:** Builds on Backend CRUD patterns. Roles reference Backends so must come after.
+**Delivers:** RoleCRUDDialog with multi-step wizard for complex role config
+**Uses:** CRUDList pattern from Phase 5, references BackendConfig from Phase 3
+**Implements:** Multi-group huh forms for wizard UX
+**Complexity:** Medium — reuses patterns, adds wizard complexity
 
-### Phase 6: Resilience and Production Hardening
-**Rationale:** Architecture research lists resilience as the final layer (depends on all above). Feature research includes error recovery with exponential backoff as P1. This phase turns a working prototype into a reliable tool.
-**Delivers:** Retry logic with exponential backoff and jitter, circuit breakers for failing backends, failure budgets, graceful degradation, partial success handling, token/cost budgets per agent
-**Addresses:** Error recovery (production-grade), quality gates (basic)
-**Avoids:** Cascading failures in production (Pitfall 7), runaway API costs
+### Phase 7: Workflow CRUD Dialog
+**Rationale:** Workflows reference Roles, so must come after Role CRUD. Completes config management feature set.
+**Delivers:** WorkflowCRUDDialog with step editing, DAG preview
+**Uses:** All patterns from Phase 5-6, references RoleConfig
+**Complexity:** Medium — most complex data model (workflow steps), but established patterns
 
-### Phase 7: Local LLM Backend and Network Adapter
-**Rationale:** Feature research places local LLM support as P2 (after validation). Architecture research defines a Network backend adapter for OpenAI-compatible APIs. This extends the existing Backend interface with a third adapter type.
-**Delivers:** Network backend adapter, OpenAI-compatible API integration, Ollama/LM Studio/llama.cpp support, built-in agentic tool loop for local models
-**Addresses:** Local LLM support, multi-backend routing foundations
-**Uses:** Fantasy openaicompat or direct openai-go client
+### Phase 8: Config Change Propagation
+**Rationale:** Last because it requires all CRUD dialogs working. Tests end-to-end hot-reload without restart.
+**Delivers:** ConfigChangedMsg event, component subscription, backend restart logic
+**Implements:** Hot-reload pattern from ARCHITECTURE.md
+**Complexity:** Medium — async propagation, graceful backend restart
 
 ### Phase Ordering Rationale
 
-- **Phase 0 before everything:** Fork strategy must be established before writing code. Retrofitting an extension architecture is orders of magnitude harder than designing it up front. All four research files reference Crush compatibility.
-- **Phase 1 before Phase 2:** Backend interface is a dependency for agent abstraction. Subprocess pitfalls (1, 2, 9) must be solved before any multi-agent logic exists.
-- **Phase 2 before Phase 3:** DAG scheduler with cycle detection and resource locking must exist before parallel execution is enabled. Running agents in parallel without these guarantees causes silent data corruption.
-- **Phase 4 after Phase 3:** TUI needs working agents to display. Event bus needs publishers (agents) to be useful. But TUI state sync must be designed correctly from the start (not bolted on).
-- **Phase 5 before Phase 6:** Resilience patterns (retry, circuit breaker) need state checkpointing to be meaningful. Retrying without checkpoints wastes all previous work.
-- **Phase 7 last in MVP:** Local LLM support is P2 — validates after cloud backends prove the architecture. The Backend interface from Phase 1 makes this a clean addition.
+- Phases 1-2 establish architecture without visible new features (validate pattern first)
+- Phase 3 is blocker for CRUD (can't build Backend CRUD with old type names)
+- Phase 4 prevents tech debt accumulation (theme needed before multiple dialogs)
+- Phases 5-7 follow natural dependencies (Backend → Role → Workflow)
+- Phase 8 is enhancement layer (CRUD works without propagation, adds polish)
+
+This ordering minimizes rework: getting foundation right in Phase 1-4 means Phase 5-7 are straightforward applications of established patterns. Reversing order (building CRUD first, adding theme later) would require refactoring all dialogs.
 
 ### Research Flags
 
-Phases likely needing deeper research during planning:
-- **Phase 0:** Needs Crush codebase analysis to identify specific extension points. Must map Crush's internal package boundaries and find interface injection opportunities.
-- **Phase 1:** Needs investigation of Claude Code CLI's exact JSON-RPC protocol format and Codex CLI's `exec` command output format. Subprocess communication protocols are under-documented.
-- **Phase 4:** Bubble Tea v2 split-pane layouts are not extensively documented. The john-marinelli/panes component and leg100 blog post are the main references. May need prototyping.
-- **Phase 7:** Fantasy's openaicompat layer and its interaction with custom base URLs needs verification. OpenAI SDK v3 base URL support is unconfirmed.
+**Phases needing deeper research during planning:**
+- NONE — this domain is well-documented, all patterns proven in production TUIs
 
-Phases with standard patterns (skip deep research):
-- **Phase 2:** DAG scheduling and topological sort are well-documented CS patterns. errgroup usage is idiomatic Go with extensive examples.
-- **Phase 3:** Git worktree management is well-documented. Parallel goroutine execution with errgroup is standard.
-- **Phase 5:** SQLite persistence, goose migrations, and sqlc code generation are all well-established patterns used by Crush itself.
-- **Phase 6:** Retry with backoff, circuit breakers (sony/gobreaker), and failure classification are well-documented resilience patterns.
+**Phases with standard patterns (skip research-phase):**
+- Phase 1: Dialog stack pattern from Crush documented, lipgloss.Place API clear
+- Phase 2: Simple refactoring, no new patterns
+- Phase 3: Config migration is standard Go JSON handling
+- Phase 4: Theme system is common pattern, lipgloss docs sufficient
+- Phase 5-7: CRUD with bubbles/list and huh is well-established
+- Phase 8: Event propagation already used in existing event bus
+
+**Recommendation:** Skip `/gsd:research-phase` for all phases. Proceed directly to task breakdown using research files as reference. Only invoke phase research if implementation reveals unexpected complexity.
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Charm ecosystem is proven, Crush validates the dependency choices, official documentation is extensive |
-| Features | MEDIUM | Feature landscape well-researched across 2026 frameworks (CrewAI, LangGraph, Clark, Ralph TUI), but MVP scope assumptions need user validation |
-| Architecture | HIGH | Hub-and-spoke pattern well-documented by Microsoft, LangChain, multiple sources. Adapter pattern, event bus, DAG scheduling are standard Go patterns |
-| Pitfalls | MEDIUM-HIGH | Subprocess pitfalls verified against Go stdlib documentation and production war stories. Fork drift risk is real but mitigation strategies are well-known |
+| Stack | HIGH | All components already validated (Bubble Tea v2, Huh, Bubbles), custom implementations based on proven Crush patterns |
+| Features | MEDIUM | Table stakes features clear from k9s/lazygit references, some uncertainty on wizard UX complexity for roles |
+| Architecture | HIGH | Dialog stack and CRUD patterns documented in multiple production TUIs, integration points with existing code well-understood |
+| Pitfalls | HIGH | All pitfalls sourced from actual GitHub issues (huh #319, bubbletea #642) and production experience, prevention strategies verified |
 
 **Overall confidence:** HIGH
 
 ### Gaps to Address
 
-- **Fantasy v0.7.1 + openai-go v3 compatibility:** Crush pins openai-go v2.7.1. If we want v3 features, Fantasy compatibility must be verified. Resolve during Phase 1 by testing Fantasy against v3.
-- **Claude Code CLI JSON-RPC protocol specifics:** The exact message format, streaming behavior, and error codes for non-interactive Claude Code are under-documented. Resolve during Phase 1 by testing against actual CLI.
-- **Codex CLI programmatic interface:** Codex `exec` command output format and `resume` semantics need hands-on testing. Resolve during Phase 1.
-- **DAG library choice (go-dag vs heimdalr/dag):** No clear winner in research. Resolve during Phase 2 by prototyping both with realistic task graphs. heimdalr/dag is faster and thread-safe with caching; go-dag is simpler.
-- **Bubble Tea v2 stability:** All Charm v2 packages are RC/beta. Monitor for breaking changes. Low risk given RC status.
-- **Crush fork point:** Which Crush commit to fork from needs analysis. Latest main may include WIP features. Resolve during Phase 0.
+- **Bubble-table v2 compatibility:** Research noted Evertras/bubble-table lacks confirmed Bubble Tea v2 support. Not critical since bubbles/list is recommended, but if tabular layout becomes requirement in Phase 6-7, will need compatibility testing before adoption.
+
+- **Multi-step wizard UX flow:** Features research identified wizard pattern for role creation but didn't detail step transitions (forward/back navigation, step validation, partial saves). Phase 6 planning should reference huh multi-group form examples and potentially prototype wizard flow before full implementation.
+
+- **Workflow DAG preview rendering:** Phase 7 includes optional "live preview" feature for workflow visualization. Research didn't identify existing ASCII DAG rendering library. If implemented, will need library search or custom rendering logic during Phase 7 planning.
+
+- **Config hot-reload edge cases:** Phase 8 propagation handles basic scenarios (backend restart, role display update) but edge cases unclear: What if backend in use by running task is deleted? What if role config changes mid-task execution? Planning should define failure modes and graceful degradation.
+
+All gaps are implementation details that don't affect architecture or phase ordering. Can be resolved during phase planning/execution.
 
 ## Sources
 
 ### Primary (HIGH confidence)
-- Crush GitHub repository and go.mod — actual production dependency choices
-- Bubble Tea GitHub / pkg.go.dev — TUI framework architecture and v2 API
-- Fantasy GitHub — multi-provider LLM abstraction, openaicompat layer
-- errgroup pkg.go.dev — goroutine orchestration API
-- Go os/exec package documentation — subprocess management patterns
-- MCP Go SDK — official SDK maintained with Google
-- Microsoft Azure Architecture Center — AI agent orchestration patterns
-- ncruces/go-sqlite3 — CGo-free SQLite features and API
+- [Bubble Tea v2 GitHub](https://github.com/charmbracelet/bubbletea) — Dialog stack architecture, message routing patterns
+- [Bubbles list component](https://pkg.go.dev/github.com/charmbracelet/bubbles/list) — Official API documentation, filtering/pagination
+- [Huh forms GitHub](https://github.com/charmbracelet/huh) — Form lifecycle, validation, issue #319 on state reset
+- [Lipgloss GitHub](https://github.com/charmbracelet/lipgloss) — Overlay composition with Place(), adaptive colors
+- [Crush TUI Architecture](https://deepwiki.com/charmbracelet/crush/5.1-tui-architecture) — Dialog system pattern, modal routing
 
 ### Secondary (MEDIUM confidence)
-- CrewAI, LangGraph, AutoGen framework comparisons — feature landscape
-- Ralph TUI, Clark, TmuxCC — competitor TUI approaches
-- Blog posts on Bubble Tea multi-pane layouts (leg100, shi.foo)
-- Fork maintenance best practices (preset.io, ropensci.org)
-- Go subprocess deadlock patterns (DoltHub, HackMySQL)
-- 2026 Agentic Coding Trends Report (Anthropic)
+- [Evertras/bubble-table](https://github.com/Evertras/bubble-table) — Table component features, v2 compatibility uncertain
+- [k9s Hotkeys](https://k9scli.io/topics/hotkeys/) — TUI keyboard navigation standards
+- [Lazygit TUI patterns](https://masri.blog/Blog/Coding/Git/Lazygit-A-TUI-Approach) — CRUD UX reference
+- [bubbletea-overlay package](https://pkg.go.dev/github.com/quickphosphat/bubbletea-overlay) — Basic compositing, insufficient for dialog stack
 
 ### Tertiary (LOW confidence)
-- openai-go v3 custom base URL support — needs source code verification
-- Fantasy v0.7.1 compatibility with openai-go v3 — needs testing
-- Performance comparison ncruces vs modernc.org/sqlite — no benchmarks found
-- Exact Claude Code CLI and Codex CLI subprocess protocol details — needs hands-on testing
+- [purpleclay/lipgloss-theme](https://pkg.go.dev/github.com/purpleclay/lipgloss-theme) — External theme library patterns, not recommended for adoption
+- Crush dialog implementation details — Mentioned in DeepWiki but source code not directly verified
 
 ---
-*Research completed: 2026-02-10*
+*Research completed: 2026-02-11*
 *Ready for roadmap: yes*

@@ -1,268 +1,366 @@
-# Technology Stack
+# Stack Research: Dialog Overlay + CRUD for Config Management
 
-**Project:** Multi-Agent AI Orchestrator (Crush Fork)
-**Domain:** Go-based TUI orchestrator for coordinating AI coding agents across multiple backends
-**Researched:** 2026-02-10
-**Overall Confidence:** HIGH
+**Domain:** Dialog-based TUI config management system
+**Researched:** 2026-02-11
+**Confidence:** MEDIUM-HIGH
 
-## Recommended Stack
+## Context: Existing Stack (DO NOT re-add)
 
-### Core Framework & UI
+**Already validated and in use:**
+- Bubble Tea v2 (charm.land/bubbletea/v2@v2.0.0-rc.2)
+- Lipgloss v2 (charm.land/lipgloss/v2@v2.0.0-beta1)
+- Huh forms (github.com/charmbracelet/huh@v0.8.0)
+- Bubbles v1 (github.com/charmbracelet/bubbles@v1.0.0)
+- modernc.org/sqlite (persistence)
+- cenkalti/backoff, sony/gobreaker (resilience)
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| **charm.land/bubbletea/v2** | v2.0.0-rc.2 | TUI framework following Elm Architecture | Industry standard for Go TUIs. Powers 25k+ applications. v2 brings improved View API with consolidated view-related properties in single struct instead of scattered commands. Mature pattern for Model-Update-View architecture. |
-| **charm.land/bubbles/v2** | v2.0.0-rc.1 | Pre-built TUI components (viewport, lists, etc.) | Official companion library for Bubble Tea. Viewport component essential for scrollable multi-pane layouts. Production-ready, battle-tested components that integrate seamlessly via message delegation. |
-| **charm.land/lipgloss/v2** | v2.0.0-beta.3 | Terminal styling & layout | De facto standard for terminal layouts in Go. Critical best practice: account for borders in height calculations (subtract 2), use dynamic dimension tracking with Height()/Width() methods, never auto-wrap in bordered panels (always truncate). |
+**This research focuses ONLY on additions for:** Dialog overlay system, list/table components for CRUD operations, reusable theme system, dynamic config management patterns.
 
-### LLM Abstraction & Agent Framework
+---
 
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| **charm.land/fantasy** | v0.7.1 | Multi-provider LLM abstraction | Charmbracelet's official LLM abstraction powering Crush. Unified API for OpenAI, Anthropic, Google Gemini, AWS Bedrock, Azure OpenAI, VertexAI. Supports openaicompat layer for any OpenAI-compatible endpoint (critical for local LLMs). Agent-oriented API with tool support. Zero external dependencies. |
-| **github.com/openai/openai-go/v3** | v3.19.0 | Official OpenAI SDK | Official SDK released July 2024, now maintained by OpenAI. Supports Responses API (March 2025). Verify custom base URL support for OpenAI-compatible endpoints (documentation incomplete, check source). |
-| **sashabaranov/go-openai** | Latest | Community OpenAI SDK with confirmed base URL support | Fallback option if official SDK lacks base URL customization. Proven `NewClientWithConfig` pattern: `config.BaseURL = "custom-url"` for OpenAI-compatible APIs. |
-| **github.com/modelcontextprotocol/go-sdk** | v1.2.0 | Model Context Protocol client/server | Official MCP SDK maintained with Google. Enables standardized integration between LLMs and external data/tools. Essential for tool calling and context management in multi-agent systems. |
+## Recommended Stack Additions
 
-### Task Orchestration & Concurrency
+### Dialog Overlay System
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| **golang.org/x/sync/errgroup** | v0.19.0 | Goroutine orchestration with error propagation | Idiomatic Go concurrency pattern for parallel agent execution. Provides context-based cancellation (one goroutine error cancels all via ctx.Done()), bounded concurrency via SetLimit(), clean error aggregation. Perfect for fan-out/fan-in agent workflows. |
-| **AkihiroSuda/go-dag** | Latest | Minimalistic DAG scheduler | Lightweight DAG with concurrent execution. Minimal dependencies, focused API. Alternative: heimdalr/dag (faster, thread-safe, caches descendants/ancestors) if performance critical. Avoid Dagu (workflow engine with WebUI - too heavy, requires YAML configs). |
+| **Custom implementation** | N/A | Modal dialog infrastructure with message routing | Crush uses custom `dialogs.DialogCmp` with dialog stack (`[]DialogModel`). External libraries (quickphosphat/bubbletea-overlay) provide basic compositing but lack dialog-specific features (stack management, focus capture, ESC handling). Build custom: (1) Dialog stack field in root model, (2) DialogModel interface with Init/Update/View, (3) Priority input routing (dialogs intercept before panes), (4) lipgloss.Layer for rendering overlay, (5) Position helpers (Center, etc.). Pattern proven in Crush. |
 
-### Subprocess Management
-
-| Technology | Version | Purpose | Why Recommended |
-|------------|---------|---------|-----------------|
-| **os/exec** (stdlib) | Go 1.18+ | CLI subprocess execution | Standard library sufficient for Claude Code CLI/Codex CLI execution. Critical patterns: (1) Always use context.WithCancel/WithTimeout for cancellation, (2) Defer cancel() functions, (3) Start goroutines for stdout/stderr BEFORE Start(), (4) Never call Wait() until pipes consumed (prevents deadlock), (5) Security: As of Go 1.19, exec doesn't resolve programs via relative paths. |
-
-### Database & Persistence
+### List/Table Components for CRUD
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| **github.com/ncruces/go-sqlite3** | v0.30.5 | SQLite wrapper (CGo-free) | Wasm-based SQLite via wazero runtime. Zero C dependencies, cross-platform (Linux/macOS/Windows/BSD across amd64/arm64/riscv64). Provides both low-level SQLite API and database/sql driver. Includes JSON1, FTS5, incremental BLOB I/O, virtual tables. Tradeoff: higher memory usage vs CGo alternatives but eliminates C toolchain requirement. Crush uses this pattern. |
-| **github.com/pressly/goose/v3** | v3.26.0 | Database migrations | Industry standard for Go migrations. Supports both SQL and Go migrations, embedded migration files, rollback support. |
+| **github.com/charmbracelet/bubbles/list** | v1.0.0 (already installed) | List component with filtering, pagination, selection | Official Charmbracelet component. Features: fuzzy filtering (sahilm/fuzzy), pagination, custom ItemDelegate for rendering, runtime delegate swapping via SetDelegate(). Handles CRUD list view (show items, select for edit/delete). Supports custom Item interface (FilterValue() method) and DefaultItem (Title()/Description()). Compatible with Bubble Tea v2. **Use this for Backend/Role/Workflow lists.** |
+| **github.com/Evertras/bubble-table** | v0.19.2 | Table component with sorting, filtering, row selection | Community table component if tabular data needed. Features: column sorting, row selection, pagination, hierarchical styling (global → column → row → cell), hidden metadata (RowData) for CRUD operations. **Caveat:** No explicit Bubble Tea v2 compatibility confirmed in release notes (latest 2024-09-06). Verify compatibility before use. **Only add if table layout preferred over list.** |
 
-### Supporting Libraries
+**Recommendation:** Start with `bubbles/list` (already installed, officially supported). Only add `bubble-table` if tabular display becomes requirement.
 
-| Library | Version | Purpose | When to Use |
-|---------|---------|---------|-------------|
-| **charm.land/log/v2** | v2.0.0 | Structured logging with beautiful terminal output | User-facing logs. Unlike Zap/Zerolog (machine-optimized JSON), Charm Log prioritizes human readability with colorful output, icons, spacing. Supports TextFormatter (console), JSONFormatter, LogfmtFormatter (production). Creates sub-loggers with log.With(). |
-| **charm.land/glamour/v2** | v2.0.0 | Markdown rendering in terminal | Rendering LLM responses with formatting. |
-| **charm.land/catwalk** | v0.17.1 | LLM inference provider collection | Lower-level than Fantasy. Use if custom provider abstraction needed. |
-| **golang.org/x/sys** | Latest | Low-level system calls | Subprocess signal handling, terminal control. |
+### Theme/Style System
 
-### Development Tools
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| **Centralized style package** | N/A | Reusable lipgloss styles with adaptive colors | Current `internal/tui/styles.go` has ad-hoc styles. Expand to centralized theme: (1) Define color palette with lipgloss.AdaptiveColor for light/dark terminals, (2) Create named style variables (DialogBorder, ListSelected, ListNormal, etc.), (3) Export from `tui.Styles` struct, (4) Pass to components via constructor. Pattern: Crush uses this, purpleclay/lipgloss-theme demonstrates similar approach. **Do NOT add external theme library** (adds dependency for simple need). |
+| **github.com/purpleclay/lipgloss-theme** | Latest (optional) | Pre-built theme system with adaptive colors, styled glyphs | ONLY if standardized color scheme across PurpleClay TUI ecosystem is desired. Provides: 11 purple shades (S950-S50), accent colors (green/amber/red), styled text (H1-H6, Mark, Tick/Cross/Bang glyphs), table helpers. **Trade-off:** External dependency for styling logic. **Skip unless theme consistency with other tools is priority.** |
 
-| Tool | Purpose | Notes |
-|------|---------|-------|
-| **sqlc** | SQL code generation | Crush uses this pattern (sqlc.yaml in repo). Type-safe SQL queries. |
-| **golangci-lint** | Linting | Standard linter aggregator. Crush uses .golangci.yml config. |
+**Recommendation:** Expand `internal/tui/styles.go` with centralized theme. Skip external library.
 
-## Installation
+### Config Management Patterns
+
+| Technology | Version | Purpose | Why Recommended |
+|------------|---------|---------|-----------------|
+| **In-memory config model** | N/A | Runtime config state for Backends/Roles/Workflows | Current: Config loaded from JSON, stored in `config.OrchestratorConfig`. Extend with: (1) CRUD methods (AddBackend, DeleteRole, UpdateWorkflow), (2) Validation (e.g., ensure backend referenced by role exists), (3) Dirty flag tracking for unsaved changes, (4) Save to global vs project path selection. All config mutations happen in-memory, persist on save. |
+| **Existing config.Save()** | N/A (stdlib encoding/json) | Persist config to JSON | Already implemented in `internal/config/save.go`. Uses `json.MarshalIndent` for human-readable JSON. **No changes needed.** |
+| **Dialog-driven CRUD flow** | N/A | User interaction pattern | List view (bubbles/list) → Select item → Open dialog (huh form or custom) → Edit/Delete → Update in-memory config → Save button triggers config.Save(). Dialogs modal (block background interaction). Pattern: Settings already uses huh form in modal, extend for multi-item CRUD. |
+
+**Recommendation:** Extend existing `internal/config` with CRUD methods. Use bubbles/list for item display, huh forms in dialogs for editing.
+
+---
+
+## Installation (NEW dependencies only)
 
 ```bash
-# Core framework
-go get charm.land/bubbletea/v2@v2.0.0-rc.2
-go get charm.land/bubbles/v2@v2.0.0-rc.1
-go get charm.land/lipgloss/v2@v2.0.0-beta.3
+# List component (already installed via bubbles@v1.0.0)
+# No new installation needed
 
-# LLM abstraction
-go get charm.land/fantasy@v0.7.1
-go get github.com/modelcontextprotocol/go-sdk@v1.2.0
+# Optional: Table component (only if required)
+go get github.com/Evertras/bubble-table@v0.19.2
 
-# Choose one OpenAI client:
-go get github.com/openai/openai-go/v3@v3.19.0
-# OR (if base URL customization confirmed missing from official SDK)
-go get github.com/sashabaranov/go-openai@latest
-
-# Orchestration
-go get golang.org/x/sync@v0.19.0
-go get github.com/AkihiroSuda/go-dag@latest
-
-# Database
-go get github.com/ncruces/go-sqlite3@v0.30.5
-go get github.com/ncruces/go-sqlite3/driver  # database/sql driver
-go get github.com/ncruces/go-sqlite3/embed   # embedded SQLite
-go get github.com/pressly/goose/v3@v3.26.0
-
-# Supporting
-go get charm.land/log/v2@v2.0.0
-go get charm.land/glamour/v2@v2.0.0
+# Optional: External theme library (not recommended)
+go get github.com/purpleclay/lipgloss-theme@latest
 ```
+
+---
 
 ## Alternatives Considered
 
 | Recommended | Alternative | When to Use Alternative | Confidence |
 |-------------|-------------|-------------------------|------------|
-| **charm.land/fantasy** | Direct provider SDKs (openai-go, anthropic-sdk-go) | Single-provider projects where abstraction overhead unnecessary | HIGH |
-| **AkihiroSuda/go-dag** | heimdalr/dag | Performance critical, need caching of descendants/ancestors | MEDIUM |
-| **AkihiroSuda/go-dag** | Dagu workflow engine | Need WebUI, YAML-based workflows, persistent scheduling, production ops features (retries, monitoring, RBAC) | HIGH |
-| **errgroup** | Manual WaitGroup + channels | Simple parallel execution without error propagation or context cancellation | HIGH |
-| **ncruces/go-sqlite3** | modernc.org/sqlite (also CGo-free) | Alternative Wasm approach, check performance benchmarks for specific workload | LOW (insufficient comparison data) |
-| **os/exec** | go-rillas/subprocess, lxd/subprocess | Need Python-like subprocess API with richer abstractions | MEDIUM |
-| **Bubble Tea v2** | Bubble Tea v1 (github.com/charmbracelet/bubbletea) | Avoid v1 migrations if possible. v2 breaking changes: import path charm.land/*, View() returns View struct not string, message types converted from aliases to structs | HIGH |
+| **Custom dialog infrastructure** | quickphosphat/bubbletea-overlay | Simple overlay compositing without dialog stack, focus management, or input routing. Use if only single modal needed and don't need stack/ESC handling. | MEDIUM |
+| **Custom dialog infrastructure** | jsdoublel/bubbletea-overlay (fork) | Exposes internal `composite()` function for more control. Use if need custom compositing logic beyond positioning. | LOW (fork maintenance unclear) |
+| **bubbles/list** | Evertras/bubble-table | Tabular data with multi-column sorting/filtering. Use if columns > 2 and sorting critical. Verify Bubble Tea v2 compatibility first. | MEDIUM |
+| **Centralized styles in tui package** | purpleclay/lipgloss-theme | Standardized purple-based theme with pre-built glyphs. Use if visual consistency with other PurpleClay TUI tools required. | LOW (adds dependency for simple need) |
+| **In-memory config with CRUD methods** | Direct file editing (viper, koanf) | Real-time config reload, complex config hierarchies, env var overrides. Overkill for this use case (simple JSON, TUI-driven edits). | HIGH |
+
+---
 
 ## What NOT to Use
 
 | Avoid | Why | Use Instead | Confidence |
 |-------|-----|-------------|------------|
-| **Google Wire** | Compile-time DI overkill for this project. Crush doesn't use it. Manual DI or Uber Fx (if complex lifecycle needed) more appropriate. | Manual constructor functions, or Uber Fx if need lifecycle hooks (OnStart/OnStop) | HIGH |
-| **Dagu** (for in-process DAG) | Heavyweight workflow engine designed for persistent scheduling, WebUI, YAML configs. Introduces unnecessary complexity for in-process task graph. | AkihiroSuda/go-dag or heimdalr/dag for programmatic DAG | HIGH |
-| **log/slog** (stdlib) | While standard as of Go 1.21, lacks the visual appeal critical for TUI applications. Charm Log provides better UX. | charm.land/log/v2 for user-facing logs, slog for machine logs if needed | MEDIUM |
-| **Zap/Zerolog** (for TUI logs) | Optimized for machine parsing (JSON), not human readability. Wrong tool for CLI/TUI user feedback. | charm.land/log/v2 | HIGH |
+| **bubbletea-overlay libraries** | Provide only basic compositing (foreground on background). Lack dialog-specific features: stack management, modal input routing, ESC key handling, dialog lifecycle. | Custom dialog infrastructure (stack + DialogModel interface + input routing) | HIGH |
+| **Evertras/bubble-table (initially)** | No confirmed Bubble Tea v2 compatibility. Latest release 2024-09-06 predates v2 stable. Risk of API incompatibility with v2 message types (KeyPressMsg vs KeyMsg). | bubbles/list (official, v2 compatible) unless tabular layout proven necessary | MEDIUM |
+| **Config libraries (viper, koanf)** | Designed for complex app config (env vars, remote config, watch mode). Adds unnecessary complexity for TUI-driven JSON editing. | Extend existing config.Save() with in-memory CRUD methods | HIGH |
+| **Direct lipgloss.Layer for all overlays** | Low-level positioning primitive. Requires manual offset calculation, no dialog semantics. Tedious for multiple dialogs. | Custom dialog infrastructure wrapping lipgloss.Layer with position helpers | MEDIUM |
 
-## Stack Patterns by Variant
+---
 
-### Pattern 1: Official OpenAI SDK with Base URL Support
-**If** official openai-go v3 supports custom base URLs:
-- Use `github.com/openai/openai-go/v3` for all OpenAI-compatible endpoints
-- Fantasy wraps this for multi-provider abstraction
-- **Verify:** Check v3 RequestOptions/DefaultClientOptions for base URL config
+## Stack Patterns for Dialog CRUD System
 
-### Pattern 2: Community SDK Fallback
-**If** official SDK lacks base URL customization:
-- Use `sashabaranov/go-openai` with `NewClientWithConfig(config)` pattern
-- Set `config.BaseURL` for local LLMs via OpenAI-compatible API
-- Fantasy may handle this internally, verify Fantasy v0.7.1 openaicompat implementation
+### Pattern 1: Dialog Stack Management
 
-### Pattern 3: Multi-Pane TUI Layout (Lipgloss + Bubbles)
-**For split-pane agent output:**
-1. Each pane = separate Model with Update()/View()
-2. Parent orchestrator model composes pane models
-3. Viewport component (bubbles/viewport) for scrollable content
-4. Lipgloss for layout: use Height()/Width() for dynamic sizing, subtract 2 for borders, truncate don't wrap
-5. Focus system: delegate KeyMsg to active pane only
-6. Reference: [Tips for building Bubble Tea programs](https://leg100.github.io/en/posts/building-bubbletea-programs/), [john-marinelli/panes component](https://github.com/john-marinelli/panes)
-
-### Pattern 4: DAG Task Execution with Context Cancellation
 ```go
-// Use errgroup for parallel agent tasks with cancellation
-g, ctx := errgroup.WithContext(parentCtx)
-g.SetLimit(maxConcurrentAgents) // Bounded concurrency
-
-for _, task := range dag.GetReadyTasks() {
-    task := task // Capture loop variable
-    g.Go(func() error {
-        return executeAgent(ctx, task)
-    })
+// In root TUI model
+type Model struct {
+    // ... existing fields
+    dialogStack []DialogModel  // LIFO stack
 }
 
-if err := g.Wait(); err != nil {
-    // One agent failed, ctx already cancelled for others
-    return err
-}
-```
-
-### Pattern 5: Subprocess Management with Proper Cleanup
-```go
-ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-defer cancel() // Always defer cancel
-
-cmd := exec.CommandContext(ctx, "claude-code", "--prompt", prompt)
-
-stdout, _ := cmd.StdoutPipe()
-stderr, _ := cmd.StderrPipe()
-
-// Start goroutines BEFORE Start() to prevent deadlock
-go func() { io.Copy(os.Stdout, stdout) }()
-go func() { io.Copy(os.Stderr, stderr) }()
-
-if err := cmd.Start(); err != nil {
-    return err
+type DialogModel interface {
+    tea.Model
+    ShouldClose() bool  // Return true when dialog completes
 }
 
-// Wait blocks until pipes fully consumed
-if err := cmd.Wait(); err != nil {
-    // Check if context cancelled vs actual error
-    if ctx.Err() == context.DeadlineExceeded {
-        return fmt.Errorf("agent timeout")
+// Update() method
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+    // Priority: Dialog stack first
+    if len(m.dialogStack) > 0 {
+        top := len(m.dialogStack) - 1
+        dialog, cmd := m.dialogStack[top].Update(msg)
+        m.dialogStack[top] = dialog.(DialogModel)
+
+        if m.dialogStack[top].ShouldClose() {
+            m.dialogStack = m.dialogStack[:top]  // Pop
+        }
+        return m, cmd
     }
-    return err
+
+    // Normal pane handling...
+}
+
+// View() method
+func (m Model) View() string {
+    base := m.renderPanes()
+
+    if len(m.dialogStack) > 0 {
+        top := m.dialogStack[len(m.dialogStack)-1]
+        return lipgloss.Layer(base, top.View(),
+            lipgloss.Center, lipgloss.Center, 0, 0)
+    }
+
+    return base
 }
 ```
+
+### Pattern 2: List-Driven CRUD with Dialogs
+
+```go
+// Backend list component
+type BackendListModel struct {
+    list     list.Model
+    config   *config.OrchestratorConfig
+}
+
+// Items implement list.Item interface
+type BackendItem struct {
+    backend config.Backend
+}
+
+func (i BackendItem) FilterValue() string { return i.backend.Name }
+func (i BackendItem) Title() string       { return i.backend.Name }
+func (i BackendItem) Description() string {
+    return fmt.Sprintf("%s - %s", i.backend.Provider, i.backend.Model)
+}
+
+// Update handles selection
+func (m BackendListModel) Update(msg tea.Msg) (BackendListModel, tea.Cmd) {
+    switch msg := msg.(type) {
+    case tea.KeyMsg:
+        switch msg.String() {
+        case "enter":
+            // Open edit dialog for selected item
+            selected := m.list.SelectedItem().(BackendItem)
+            return m, openEditBackendDialog(selected.backend)
+
+        case "d":
+            // Open delete confirmation dialog
+            selected := m.list.SelectedItem().(BackendItem)
+            return m, openDeleteConfirmDialog(selected.backend.Name)
+
+        case "n":
+            // Open new backend dialog
+            return m, openNewBackendDialog()
+        }
+    }
+
+    var cmd tea.Cmd
+    m.list, cmd = m.list.Update(msg)
+    return m, cmd
+}
+```
+
+### Pattern 3: Centralized Theme System
+
+```go
+// internal/tui/theme.go
+package tui
+
+import "github.com/charmbracelet/lipgloss"
+
+type Theme struct {
+    // Colors (adaptive for light/dark terminals)
+    Primary   lipgloss.AdaptiveColor
+    Secondary lipgloss.AdaptiveColor
+    Success   lipgloss.AdaptiveColor
+    Warning   lipgloss.AdaptiveColor
+    Error     lipgloss.AdaptiveColor
+    Muted     lipgloss.AdaptiveColor
+
+    // Styles
+    DialogBorder     lipgloss.Style
+    DialogTitle      lipgloss.Style
+    ListSelected     lipgloss.Style
+    ListNormal       lipgloss.Style
+    ButtonFocused    lipgloss.Style
+    ButtonBlurred    lipgloss.Style
+}
+
+var DefaultTheme = Theme{
+    Primary:   lipgloss.AdaptiveColor{Light: "#5A56E0", Dark: "#7D79F6"},
+    Secondary: lipgloss.AdaptiveColor{Light: "#6C757D", Dark: "#ADB5BD"},
+    Success:   lipgloss.AdaptiveColor{Light: "#198754", Dark: "#75B798"},
+    Warning:   lipgloss.AdaptiveColor{Light: "#FFC107", Dark: "#FFD666"},
+    Error:     lipgloss.AdaptiveColor{Light: "#DC3545", Dark: "#F28B82"},
+    Muted:     lipgloss.AdaptiveColor{Light: "#6C757D", Dark: "#495057"},
+
+    DialogBorder: lipgloss.NewStyle().
+        Border(lipgloss.RoundedBorder()).
+        BorderForeground(lipgloss.AdaptiveColor{Light: "#5A56E0", Dark: "#7D79F6"}).
+        Padding(1, 2),
+
+    // ... other styles
+}
+
+// Pass theme to components
+func NewBackendListModel(config *config.OrchestratorConfig, theme Theme) BackendListModel {
+    delegate := list.NewDefaultDelegate()
+    delegate.Styles.SelectedTitle = theme.ListSelected
+    delegate.Styles.NormalTitle = theme.ListNormal
+    // ...
+}
+```
+
+### Pattern 4: Config CRUD Methods
+
+```go
+// internal/config/crud.go
+package config
+
+import "errors"
+
+// AddBackend adds a new backend, returns error if name exists
+func (c *OrchestratorConfig) AddBackend(name string, backend Backend) error {
+    if _, exists := c.Backends[name]; exists {
+        return errors.New("backend already exists")
+    }
+    c.Backends[name] = backend
+    return nil
+}
+
+// UpdateBackend updates existing backend
+func (c *OrchestratorConfig) UpdateBackend(name string, backend Backend) error {
+    if _, exists := c.Backends[name]; !exists {
+        return errors.New("backend not found")
+    }
+    c.Backends[name] = backend
+    return nil
+}
+
+// DeleteBackend removes backend, validates no roles reference it
+func (c *OrchestratorConfig) DeleteBackend(name string) error {
+    // Check if any role uses this backend
+    for roleName, role := range c.Roles {
+        if role.Backend == name {
+            return fmt.Errorf("backend in use by role: %s", roleName)
+        }
+    }
+    delete(c.Backends, name)
+    return nil
+}
+
+// Similar for Roles, Workflows...
+```
+
+---
 
 ## Version Compatibility
 
 | Package | Compatible With | Notes |
 |---------|-----------------|-------|
-| **bubbletea/v2** | bubbles/v2, lipgloss/v2 | All v2 beta/rc versions in Charm ecosystem designed to work together. Import paths changed to charm.land/* in v2. |
-| **fantasy v0.7.1** | openai-go/v2 (v2.7.1 in Crush) | Crush uses openai-go v2, but v3 is latest. Verify Fantasy compatibility with v3 before upgrading. |
-| **ncruces/go-sqlite3** | Go 1.18+ | Requires wazero Wasm runtime, works across all platforms. Not at v1.0 yet (pre-stable). |
-| **errgroup** | Go 1.18+ | Part of golang.org/x/sync, stable API. |
+| **bubbles/list v1.0.0** | Bubble Tea v2.0.0-rc.2 | Official Charmbracelet library, designed for v2. Uses standard tea.Model interface. |
+| **Evertras/bubble-table v0.19.2** | Bubble Tea v1 (unconfirmed for v2) | Latest release Sep 2024, predates v2 stable. No v2 mention in release notes. Test before adopting. |
+| **lipgloss v2.0.0-beta1** | Bubble Tea v2.0.0-rc.2 | Already validated compatible (in use). |
+| **huh v0.8.0** | Bubble Tea v2.0.0-rc.2 | Already validated compatible (in use for settings). |
 
-## Architecture Decisions
+---
 
-### Why Charm Ecosystem Over Alternatives?
-1. **Proven at scale:** Powers Crush (Charm's own agent), 25k+ apps
-2. **Cohesive design:** bubbletea/bubbles/lipgloss/fantasy designed to work together
-3. **Active maintenance:** v2 releases in Nov 2024-Jan 2025, Fantasy updated Feb 9, 2026
-4. **Domain fit:** TUI-first architecture matches terminal-based orchestrator requirements
+## Architecture Integration
 
-### Why Fantasy Over Direct Provider SDKs?
-1. **Multi-backend requirement:** Project needs Claude (Anthropic), Codex (OpenAI), local LLMs
-2. **Consistent API:** Single interface reduces coupling, easier to add providers
-3. **OpenAI-compatible layer:** Fantasy's openaicompat handles local LLMs via standard interface
-4. **Crush precedent:** Forking Crush means inheriting Fantasy abstraction, maintain consistency
+### Current State
+- Settings pane: `SettingsPaneModel` with huh form, modal overlay (blocks input)
+- Hardcoded config: Provider commands, agent provider/model
+- Simple show/hide visibility toggle
 
-### Why errgroup Over Custom DAG Scheduler?
-1. **Complementary tools:** errgroup handles parallel execution + cancellation, DAG handles dependency ordering
-2. **Separation of concerns:** DAG determines task order, errgroup executes ready tasks concurrently
-3. **Idiomatic Go:** errgroup is standard x/sync pattern, well-understood by Go developers
+### Target State (Dialog + CRUD)
+1. **Dialog system:** Stack-based (multiple dialogs possible), modal input routing, ESC/completion handling
+2. **List views:** Backends list, Roles list, Workflows list (bubbles/list component)
+3. **CRUD dialogs:** Edit/Delete/New dialogs using huh forms
+4. **Theme system:** Centralized `Theme` struct, passed to all components
+5. **Config model:** CRUD methods (Add/Update/Delete), validation, dirty tracking
 
-### Why CGo-free SQLite (ncruces)?
-1. **Cross-compilation:** No C toolchain needed, simplifies builds across platforms
-2. **Crush compatibility:** Forking Crush means maintaining similar dependency profile
-3. **Sufficient performance:** Wasm overhead acceptable for metadata storage (not performance critical path)
+### Migration Path
+1. Extract dialog logic from `SettingsPaneModel` into generic `DialogStack` manager
+2. Create `BackendListModel`, `RoleListModel`, `WorkflowListModel` using bubbles/list
+3. Build dialog components for each CRUD operation (EditBackendDialog, NewRoleDialog, etc.)
+4. Expand `internal/tui/styles.go` into `internal/tui/theme.go` with adaptive colors
+5. Add CRUD methods to `internal/config/types.go` with validation
+
+---
+
+## Confidence Assessment
+
+| Area | Confidence | Rationale |
+|------|------------|-----------|
+| **bubbles/list for CRUD lists** | HIGH | Official component, v2 compatible, already installed, proven in ecosystem |
+| **Custom dialog infrastructure** | HIGH | Crush pattern proven, simple stack + interface approach, avoids external deps |
+| **Centralized theme system** | HIGH | Standard Go pattern, lipgloss.AdaptiveColor documented, Crush uses similar |
+| **Config CRUD methods** | HIGH | Straightforward extension of existing config package, stdlib only |
+| **bubble-table compatibility** | LOW | No v2 confirmation in releases, message type changes in v2 could break |
+| **bubbletea-overlay libraries** | MEDIUM | Work for basic compositing, but lack dialog semantics needed for stack/routing |
+| **purpleclay/lipgloss-theme necessity** | LOW | External dependency not justified for simple theme needs |
+
+---
 
 ## Open Questions & Validation Needed
 
 | Question | Priority | How to Resolve |
 |----------|----------|----------------|
-| Does openai-go/v3 support custom base URLs? | HIGH | Check pkg.go.dev docs, review option.With* functions, or test with local LLM endpoint |
-| Fantasy v0.7.1 compatibility with openai-go v3? | HIGH | Crush uses v2.7.1, check Fantasy release notes for v3 support |
-| Performance: ncruces vs modernc.org/sqlite? | MEDIUM | Benchmark both with realistic workload (agent metadata writes) |
-| heimdalr/dag vs AkihiroSuda/go-dag for task graph? | MEDIUM | Prototype both, evaluate caching benefits for complex dependency graphs |
-| Bubble Tea v2 stability timeline? | LOW | Monitor releases, v2.0.0 final expected soon given RC status |
+| Bubble Tea v2 compatibility for bubble-table? | MEDIUM | Test import with v2, check message handling (KeyPressMsg vs KeyMsg), or wait for official v2 release notes |
+| Should Backends/Roles/Workflows use list or table? | LOW | Prototype both with bubbles/list and bubble-table (if compatible), evaluate UX |
+| Dialog stack vs single dialog at a time? | LOW | Start with stack (more flexible), simplify to single if complexity unnecessary |
+| Dirty config tracking for unsaved changes warning? | LOW | Implement if users request "unsaved changes" prompt on quit |
 
-## Confidence Assessment
-
-| Technology Area | Confidence | Rationale |
-|----------------|------------|-----------|
-| **TUI Framework (Bubble Tea/Bubbles/Lipgloss)** | HIGH | Official Charm stack, proven in Crush, extensive documentation, active development |
-| **LLM Abstraction (Fantasy)** | HIGH | Crush uses this, official Charm library, supports required providers |
-| **OpenAI SDK Choice** | MEDIUM | Official v3 SDK exists but base URL support unverified in docs, sashabaranov fallback confirmed working |
-| **Concurrency (errgroup)** | HIGH | Standard x/sync pattern, well-documented, idiomatic Go |
-| **DAG Libraries** | MEDIUM | Multiple options (AkihiroSuda, heimdalr), no clear winner, need prototyping |
-| **Subprocess Management** | HIGH | Standard library os/exec sufficient, patterns well-established |
-| **Database (SQLite)** | HIGH | Crush uses ncruces pattern, CGo-free benefits clear |
-| **MCP Integration** | MEDIUM | Official SDK exists, maintained with Google, but integration patterns with Fantasy unclear |
+---
 
 ## Sources
 
-### High Confidence (Official/Context7)
-- [Bubble Tea GitHub](https://github.com/charmbracelet/bubbletea) — Architecture, v2 breaking changes
-- [Bubbles viewport package](https://pkg.go.dev/github.com/charmbracelet/bubbles/viewport) — Multi-pane component API
-- [Fantasy GitHub](https://github.com/charmbracelet/fantasy) — Multi-provider LLM abstraction
-- [Crush go.mod](https://github.com/charmbracelet/crush/blob/main/go.mod) — Actual dependencies in production
-- [ncruces/go-sqlite3 pkg.go.dev](https://pkg.go.dev/github.com/ncruces/go-sqlite3) — CGo-free SQLite features
-- [errgroup pkg.go.dev](https://pkg.go.dev/golang.org/x/sync/errgroup) — Goroutine orchestration API
-- [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk) — Official SDK maintained with Google
+### High Confidence (Official Docs)
+- [bubbles/list package](https://pkg.go.dev/github.com/charmbracelet/bubbles/list) — Official list component API
+- [bubbles/list README](https://github.com/charmbracelet/bubbles/blob/master/list/README.md) — ItemDelegate, filtering, pagination
+- [Bubble Tea v2 Discussion #1374](https://github.com/charmbracelet/bubbletea/discussions/1374) — v2 breaking changes, message types
+- [Crush TUI Architecture](https://deepwiki.com/charmbracelet/crush/5.1-tui-architecture) — Dialog system pattern (stack, modal routing)
 
-### Medium Confidence (Official Docs + Web Search Verification)
-- [Tips for building Bubble Tea programs](https://leg100.github.io/en/posts/building-bubbletea-programs/) — Best practices for layouts
-- [sashabaranov/go-openai custom base URL](https://github.com/sashabaranov/go-openai/blob/master/config.go) — Verified NewClientWithConfig pattern
-- [Dagu features](https://github.com/dagu-org/dagu) — Workflow engine capabilities
-- [Go context best practices](https://go.dev/blog/context) — Official Go blog on cancellation
-- [Logging libraries comparison](https://betterstack.com/community/guides/logging/best-golang-logging-libraries/) — 2026 landscape
+### Medium Confidence (Community Libraries)
+- [Evertras/bubble-table](https://github.com/Evertras/bubble-table) — Table component features, API
+- [Evertras/bubble-table releases](https://github.com/Evertras/bubble-table/releases) — Latest version v0.19.2, no v2 mention
+- [quickphosphat/bubbletea-overlay](https://pkg.go.dev/github.com/quickphosphat/bubbletea-overlay) — Basic overlay compositing
+- [purpleclay/lipgloss-theme](https://pkg.go.dev/github.com/purpleclay/lipgloss-theme) — Theme library pattern, adaptive colors
 
-### Low Confidence (Web Search Only, Needs Verification)
-- openai-go/v3 custom base URL support — Documentation incomplete, needs source code review
-- Performance comparison ncruces vs modernc.org/sqlite — No benchmarks found
-- Fantasy v0.7.1 compatibility with openai-go v3 — Crush uses v2, unclear if v3 tested
+### Low Confidence (Web Search Only)
+- Crush dialog implementation details — Mentioned in DeepWiki but source code not directly verified
+- bubble-table v2 compatibility — Unconfirmed, needs testing
 
 ---
-*Stack research for: Multi-Agent AI Orchestrator (Crush Fork)*
-*Researched: 2026-02-10*
-*Overall Confidence: HIGH*
+
+*Stack research for: Dialog Overlay + CRUD Config Management*
+*Researched: 2026-02-11*
+*Confidence: MEDIUM-HIGH*
