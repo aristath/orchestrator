@@ -12,11 +12,11 @@ import (
 // CodexAdapter is the Codex CLI backend adapter.
 // It uses the `codex` CLI tool to interact with OpenAI's GPT models.
 type CodexAdapter struct {
-	threadID string           // Thread ID for resuming conversations
-	workDir  string           // Working directory for the CLI
-	model    string           // Model override (optional)
-	started  bool             // Tracks whether first message has been sent
-	procMgr  *ProcessManager  // Reference to shared process manager
+	threadID string          // Thread ID for resuming conversations
+	workDir  string          // Working directory for the CLI
+	model    string          // Model override (optional)
+	started  bool            // Tracks whether first message has been sent
+	procMgr  *ProcessManager // Reference to shared process manager
 }
 
 // codexEvent is the base event type for all Codex events.
@@ -40,7 +40,7 @@ type codexTurnCompleted struct {
 // If cfg.SessionID is provided, it will be used as the initial thread ID for resuming sessions.
 func NewCodexAdapter(cfg Config, procMgr *ProcessManager) (*CodexAdapter, error) {
 	adapter := &CodexAdapter{
-		threadID: cfg.SessionID,  // May be empty for new threads
+		threadID: cfg.SessionID, // May be empty for new threads
 		workDir:  cfg.WorkDir,
 		model:    cfg.Model,
 		started:  cfg.SessionID != "", // If we have a session ID, we're resuming
@@ -91,7 +91,7 @@ func (c *CodexAdapter) Send(ctx context.Context, msg Message) (Response, error) 
 
 // buildArgs constructs the command arguments for codex CLI.
 // First message: ["exec", prompt, "--json"]
-// Resume: ["resume", threadID, "--json"]
+// Resume: ["resume", threadID, prompt, "--json"]
 func (c *CodexAdapter) buildArgs(msg Message) []string {
 	var args []string
 
@@ -100,8 +100,8 @@ func (c *CodexAdapter) buildArgs(msg Message) []string {
 		// First message: use exec
 		args = []string{"exec", msg.Content, "--json"}
 	} else {
-		// Resume existing thread
-		args = []string{"resume", c.threadID, "--json"}
+		// Resume existing thread and send the new user message
+		args = []string{"resume", c.threadID, msg.Content, "--json"}
 	}
 
 	// Add model override if configured

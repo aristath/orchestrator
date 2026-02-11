@@ -31,30 +31,30 @@ type BackendFactory func(agentRole string, workDir string) (backend.Backend, err
 
 // ParallelRunnerConfig configures the parallel runner.
 type ParallelRunnerConfig struct {
-	ConcurrencyLimit       int                        // Max concurrent tasks (default 4)
-	MergeStrategy          worktree.MergeStrategy     // Merge strategy for worktrees
-	WorktreeManager        *worktree.WorktreeManager  // Worktree manager instance
-	QAChannel              *QAChannel                 // Optional Q&A channel (nil disables)
-	ProcessManager         *backend.ProcessManager    // Process manager for backend creation
-	BackendConfigs         map[string]backend.Config  // Maps agentRole to base backend config
-	BackendFactory         BackendFactory             // Optional factory for testing (overrides BackendConfigs)
-	EventBus               *events.EventBus           // Optional event bus (nil disables event publishing)
-	Store                  persistence.Store          // Optional persistence store (nil disables)
-	RetryConfig            RetryConfig                // Retry configuration (zero value uses defaults)
-	CircuitBreakerRegistry *CircuitBreakerRegistry    // Optional (nil creates default on first use)
+	ConcurrencyLimit       int                       // Max concurrent tasks (default 4)
+	MergeStrategy          worktree.MergeStrategy    // Merge strategy for worktrees
+	WorktreeManager        *worktree.WorktreeManager // Worktree manager instance
+	QAChannel              *QAChannel                // Optional Q&A channel (nil disables)
+	ProcessManager         *backend.ProcessManager   // Process manager for backend creation
+	BackendConfigs         map[string]backend.Config // Maps agentRole to base backend config
+	BackendFactory         BackendFactory            // Optional factory for testing (overrides BackendConfigs)
+	EventBus               *events.EventBus          // Optional event bus (nil disables event publishing)
+	Store                  persistence.Store         // Optional persistence store (nil disables)
+	RetryConfig            RetryConfig               // Retry configuration (zero value uses defaults)
+	CircuitBreakerRegistry *CircuitBreakerRegistry   // Optional (nil creates default on first use)
 }
 
 // ParallelRunner executes DAG tasks concurrently with git worktree isolation.
 type ParallelRunner struct {
-	config           ParallelRunnerConfig
-	dag              *scheduler.DAG
-	lockMgr          *scheduler.ResourceLockManager
-	mu               sync.Mutex
-	mergeMu          sync.Mutex // Serializes git merge operations to prevent index.lock conflicts
-	activeWorktrees  map[string]*worktree.WorktreeInfo
-	results          []TaskResult
-	sessions         map[string]string // Maps taskID -> sessionID for resume support
-	cbRegistry       *CircuitBreakerRegistry
+	config          ParallelRunnerConfig
+	dag             *scheduler.DAG
+	lockMgr         *scheduler.ResourceLockManager
+	mu              sync.Mutex
+	mergeMu         sync.Mutex // Serializes git merge operations to prevent index.lock conflicts
+	activeWorktrees map[string]*worktree.WorktreeInfo
+	results         []TaskResult
+	sessions        map[string]string // Maps taskID -> sessionID for resume support
+	cbRegistry      *CircuitBreakerRegistry
 }
 
 // NewParallelRunner creates a new parallel runner.
@@ -106,10 +106,23 @@ func (r *ParallelRunner) checkpoint(fn func(persistence.Store) error) {
 func (r *ParallelRunner) Run(ctx context.Context) ([]TaskResult, error) {
 	// Persist full DAG structure to store at the start
 	if r.config.Store != nil {
-		for _, task := range r.dag.Tasks() {
+		order, err := r.dag.Order()
+		if err != nil {
+			return nil, fmt.Errorf("failed to compute DAG order for persistence: %w", err)
+		}
+
+		persistTask := func(task *scheduler.Task) {
 			if err := r.config.Store.SaveTask(ctx, task); err != nil {
 				log.Printf("WARNING: failed to persist task %q: %v", task.ID, err)
 			}
+		}
+
+		for _, taskID := range order {
+			task, ok := r.dag.Get(taskID)
+			if !ok {
+				return nil, fmt.Errorf("task %q not found while checkpointing DAG", taskID)
+			}
+			persistTask(task)
 		}
 	}
 
@@ -279,9 +292,9 @@ func (r *ParallelRunner) executeTask(ctx context.Context, task *scheduler.Task) 
 
 		// Publish TaskFailed event
 		r.publish(events.TopicTask, events.TaskFailedEvent{
-			ID:       task.ID,
-			Err:      taskErr,
-			Duration: time.Since(startTime),
+			ID:        task.ID,
+			Err:       taskErr,
+			Duration:  time.Since(startTime),
 			Timestamp: time.Now(),
 		})
 
@@ -293,34 +306,6 @@ func (r *ParallelRunner) executeTask(ctx context.Context, task *scheduler.Task) 
 		return nil
 	}
 
-	// Mark task completed
-	_ = r.dag.MarkCompleted(task.ID, resp.Content)
-
-	// Checkpoint: save conversation, session, and completed status
-	r.checkpoint(func(s persistence.Store) error {
-		// Save the prompt we sent
-		if err := s.SaveMessage(ctx, task.ID, "user", task.Prompt); err != nil {
-			return err
-		}
-		// Save the response we received
-		if err := s.SaveMessage(ctx, task.ID, "assistant", resp.Content); err != nil {
-			return err
-		}
-		// Save session for resume capability
-		if err := s.SaveSession(ctx, task.ID, b.SessionID(), r.backendType(task)); err != nil {
-			return err
-		}
-		return s.UpdateTaskStatus(ctx, task.ID, scheduler.TaskCompleted, resp.Content, nil)
-	})
-
-	// Publish TaskCompleted event
-	r.publish(events.TopicTask, events.TaskCompletedEvent{
-		ID:       task.ID,
-		Result:   resp.Content,
-		Duration: time.Since(startTime),
-		Timestamp: time.Now(),
-	})
-
 	// Merge worktree back to main (serialized to prevent git index.lock conflicts)
 	r.mergeMu.Lock()
 	mergeResult, err := r.config.WorktreeManager.Merge(wtInfo, r.config.MergeStrategy)
@@ -328,8 +313,8 @@ func (r *ParallelRunner) executeTask(ctx context.Context, task *scheduler.Task) 
 
 	// Publish TaskMerged event
 	r.publish(events.TopicTask, events.TaskMergedEvent{
-		ID:            task.ID,
-		Merged:        mergeResult != nil && mergeResult.Merged,
+		ID:     task.ID,
+		Merged: mergeResult != nil && mergeResult.Merged,
 		ConflictFiles: func() []string {
 			if mergeResult != nil {
 				return mergeResult.ConflictFiles
@@ -342,6 +327,29 @@ func (r *ParallelRunner) executeTask(ctx context.Context, task *scheduler.Task) 
 	if err != nil {
 		log.Printf("ERROR: unexpected error during merge operation for task %q: %v", task.ID, err)
 		_ = r.config.WorktreeManager.ForceCleanup(wtInfo)
+		_ = r.dag.MarkFailed(task.ID, err)
+
+		// Checkpoint: save conversation/session and mark failed
+		r.checkpoint(func(s persistence.Store) error {
+			if err := s.SaveMessage(ctx, task.ID, "user", task.Prompt); err != nil {
+				return err
+			}
+			if err := s.SaveMessage(ctx, task.ID, "assistant", resp.Content); err != nil {
+				return err
+			}
+			if err := s.SaveSession(ctx, task.ID, b.SessionID(), backendType); err != nil {
+				return err
+			}
+			return s.UpdateTaskStatus(ctx, task.ID, scheduler.TaskFailed, "", err)
+		})
+
+		r.publish(events.TopicTask, events.TaskFailedEvent{
+			ID:        task.ID,
+			Err:       err,
+			Duration:  time.Since(startTime),
+			Timestamp: time.Now(),
+		})
+
 		r.recordResult(TaskResult{
 			TaskID:      task.ID,
 			Success:     false,
@@ -355,15 +363,70 @@ func (r *ParallelRunner) executeTask(ctx context.Context, task *scheduler.Task) 
 	if !mergeResult.Merged {
 		// Merge conflict - work succeeded but merge failed
 		log.Printf("WARNING: merge conflict for task %q: %v", task.ID, mergeResult.Error)
+		mergeErr := mergeResult.Error
+		if mergeErr == nil {
+			mergeErr = fmt.Errorf("merge did not complete for task %q", task.ID)
+		}
+		_ = r.dag.MarkFailed(task.ID, mergeErr)
+
+		// Checkpoint: save conversation/session and mark failed
+		r.checkpoint(func(s persistence.Store) error {
+			if err := s.SaveMessage(ctx, task.ID, "user", task.Prompt); err != nil {
+				return err
+			}
+			if err := s.SaveMessage(ctx, task.ID, "assistant", resp.Content); err != nil {
+				return err
+			}
+			if err := s.SaveSession(ctx, task.ID, b.SessionID(), backendType); err != nil {
+				return err
+			}
+			return s.UpdateTaskStatus(ctx, task.ID, scheduler.TaskFailed, "", mergeErr)
+		})
+
+		r.publish(events.TopicTask, events.TaskFailedEvent{
+			ID:        task.ID,
+			Err:       mergeErr,
+			Duration:  time.Since(startTime),
+			Timestamp: time.Now(),
+		})
+
 		_ = r.config.WorktreeManager.Cleanup(wtInfo) // Keep branch for inspection
 		r.recordResult(TaskResult{
 			TaskID:      task.ID,
-			Success:     true, // Task succeeded, merge failed
+			Success:     false,
 			MergeResult: mergeResult,
-			Error:       mergeResult.Error,
+			Error:       mergeErr,
 		})
 		return nil
 	}
+
+	// Mark task completed only after merge succeeds
+	_ = r.dag.MarkCompleted(task.ID, resp.Content)
+
+	// Checkpoint: save conversation, session, and completed status
+	r.checkpoint(func(s persistence.Store) error {
+		// Save the prompt we sent
+		if err := s.SaveMessage(ctx, task.ID, "user", task.Prompt); err != nil {
+			return err
+		}
+		// Save the response we received
+		if err := s.SaveMessage(ctx, task.ID, "assistant", resp.Content); err != nil {
+			return err
+		}
+		// Save session for resume capability
+		if err := s.SaveSession(ctx, task.ID, b.SessionID(), backendType); err != nil {
+			return err
+		}
+		return s.UpdateTaskStatus(ctx, task.ID, scheduler.TaskCompleted, resp.Content, nil)
+	})
+
+	// Publish TaskCompleted event
+	r.publish(events.TopicTask, events.TaskCompletedEvent{
+		ID:        task.ID,
+		Result:    resp.Content,
+		Duration:  time.Since(startTime),
+		Timestamp: time.Now(),
+	})
 
 	// Merge succeeded - cleanup worktree
 	if err := r.config.WorktreeManager.Cleanup(wtInfo); err != nil {

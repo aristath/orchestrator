@@ -9,7 +9,7 @@ import (
 type EventBus struct {
 	mu      sync.RWMutex
 	subs    map[string][]chan Event // topic -> subscriber channels
-	allSubs []chan Event             // channels subscribed to all topics
+	allSubs []chan Event            // channels subscribed to all topics
 	closed  bool
 }
 
@@ -34,6 +34,11 @@ func (b *EventBus) Subscribe(topic string, bufSize int) <-chan Event {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
+	if b.closed {
+		close(ch)
+		return ch
+	}
+
 	b.subs[topic] = append(b.subs[topic], ch)
 
 	return ch
@@ -51,6 +56,11 @@ func (b *EventBus) SubscribeAll(bufSize int) <-chan Event {
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
+
+	if b.closed {
+		close(ch)
+		return ch
+	}
 
 	b.allSubs = append(b.allSubs, ch)
 

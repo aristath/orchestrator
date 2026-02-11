@@ -159,6 +159,33 @@ func TestPublishAfterClose(t *testing.T) {
 	}
 }
 
+// TestSubscribeAfterCloseReturnsClosedChannel verifies late subscribers are not left hanging.
+func TestSubscribeAfterCloseReturnsClosedChannel(t *testing.T) {
+	bus := NewEventBus()
+	bus.Close()
+
+	ch := bus.Subscribe(TopicTask, 10)
+	allCh := bus.SubscribeAll(10)
+
+	select {
+	case _, ok := <-ch:
+		if ok {
+			t.Fatal("expected topic subscription channel to be closed")
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timeout waiting for closed topic subscription channel")
+	}
+
+	select {
+	case _, ok := <-allCh:
+		if ok {
+			t.Fatal("expected all-topics subscription channel to be closed")
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timeout waiting for closed all-topics subscription channel")
+	}
+}
+
 // TestMultipleTopics verifies topic isolation.
 func TestMultipleTopics(t *testing.T) {
 	bus := NewEventBus()

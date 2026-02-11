@@ -110,9 +110,9 @@ func TestCodexAdapter_BuildsResumeCommand(t *testing.T) {
 	msg := Message{Content: "Follow-up question", Role: "user"}
 	args := adapter.buildArgs(msg)
 
-	// Verify args contain resume, thread ID, and --json
-	if len(args) < 3 {
-		t.Fatalf("Expected at least 3 args, got %d: %v", len(args), args)
+	// Verify args contain resume, thread ID, prompt, and --json
+	if len(args) < 4 {
+		t.Fatalf("Expected at least 4 args, got %d: %v", len(args), args)
 	}
 
 	if args[0] != "resume" {
@@ -123,8 +123,12 @@ func TestCodexAdapter_BuildsResumeCommand(t *testing.T) {
 		t.Errorf("Expected second arg to be thread ID, got: %s", args[1])
 	}
 
-	if args[2] != "--json" {
-		t.Errorf("Expected third arg '--json', got: %s", args[2])
+	if args[2] != "Follow-up question" {
+		t.Errorf("Expected third arg to be prompt, got: %s", args[2])
+	}
+
+	if args[3] != "--json" {
+		t.Errorf("Expected fourth arg '--json', got: %s", args[3])
 	}
 }
 
@@ -250,7 +254,7 @@ func TestCodexAdapter_ExtractsThreadIDFromResponse(t *testing.T) {
 		t.Errorf("Expected content 'Response text', got: %s", content)
 	}
 
-	// Verify subsequent buildArgs uses resume
+	// Verify subsequent buildArgs uses resume and includes prompt
 	msg := Message{Content: "Next message", Role: "user"}
 	args := adapter.buildArgs(msg)
 
@@ -260,6 +264,10 @@ func TestCodexAdapter_ExtractsThreadIDFromResponse(t *testing.T) {
 
 	if args[1] != "thread_new123" {
 		t.Errorf("Expected second arg to be thread ID, got: %s", args[1])
+	}
+
+	if args[2] != "Next message" {
+		t.Errorf("Expected third arg to be prompt, got: %s", args[2])
 	}
 }
 

@@ -3,14 +3,16 @@ package scheduler
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/gammazero/toposort"
 )
 
 // DAG represents a directed acyclic graph of tasks.
 type DAG struct {
-	tasks      map[string]*Task     // All tasks indexed by ID
-	dependents map[string][]string  // Maps taskID -> list of tasks that depend on it
+	mu         sync.RWMutex
+	tasks      map[string]*Task    // All tasks indexed by ID
+	dependents map[string][]string // Maps taskID -> list of tasks that depend on it
 }
 
 // NewDAG creates an empty DAG.
@@ -23,6 +25,9 @@ func NewDAG() *DAG {
 
 // AddTask adds a task to the DAG. Returns error if task ID already exists.
 func (d *DAG) AddTask(task *Task) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	if _, exists := d.tasks[task.ID]; exists {
 		return fmt.Errorf("task with ID %q already exists", task.ID)
 	}
@@ -41,6 +46,9 @@ func (d *DAG) AddTask(task *Task) error {
 // Returns ordered task IDs or error if cycle detected.
 // Also verifies all task IDs in DependsOn exist in the DAG.
 func (d *DAG) Validate() ([]string, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
 	// First, verify all dependencies exist
 	for taskID, task := range d.tasks {
 		for _, depID := range task.DependsOn {
@@ -100,6 +108,9 @@ func (d *DAG) Validate() ([]string, error) {
 // Eligible returns all tasks with status TaskPending whose dependencies are ALL resolved.
 // Does NOT include tasks already eligible/running/completed/failed.
 func (d *DAG) Eligible() []*Task {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
 	eligible := []*Task{}
 
 	for _, task := range d.tasks {
@@ -124,7 +135,7 @@ func (d *DAG) Eligible() []*Task {
 		}
 
 		if allResolved {
-			eligible = append(eligible, task)
+			eligible = append(eligible, cloneTask(task))
 		}
 	}
 
@@ -154,6 +165,9 @@ func (d *DAG) isDependencyResolved(dep *Task) bool {
 
 // MarkRunning sets task status to TaskRunning.
 func (d *DAG) MarkRunning(taskID string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	task, exists := d.tasks[taskID]
 	if !exists {
 		return fmt.Errorf("task %q not found", taskID)
@@ -165,6 +179,9 @@ func (d *DAG) MarkRunning(taskID string) error {
 
 // MarkCompleted sets task status to TaskCompleted and stores result.
 func (d *DAG) MarkCompleted(taskID string, result string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	task, exists := d.tasks[taskID]
 	if !exists {
 		return fmt.Errorf("task %q not found", taskID)
@@ -181,6 +198,9 @@ func (d *DAG) MarkCompleted(taskID string, result string) error {
 // - FailSoft: dependents can become eligible
 // - FailSkip: treat as completed for dependency resolution
 func (d *DAG) MarkFailed(taskID string, err error) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	task, exists := d.tasks[taskID]
 	if !exists {
 		return fmt.Errorf("task %q not found", taskID)
@@ -193,15 +213,24 @@ func (d *DAG) MarkFailed(taskID string, err error) error {
 
 // Get returns task by ID.
 func (d *DAG) Get(taskID string) (*Task, bool) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
 	task, exists := d.tasks[taskID]
-	return task, exists
+	if !exists {
+		return nil, false
+	}
+	return cloneTask(task), true
 }
 
 // Tasks returns all tasks.
 func (d *DAG) Tasks() []*Task {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
 	tasks := make([]*Task, 0, len(d.tasks))
 	for _, task := range d.tasks {
-		tasks = append(tasks, task)
+		tasks = append(tasks, cloneTask(task))
 	}
 	return tasks
 }
@@ -209,4 +238,19 @@ func (d *DAG) Tasks() []*Task {
 // Order returns topologically sorted task IDs (calls Validate).
 func (d *DAG) Order() ([]string, error) {
 	return d.Validate()
+}
+
+func cloneTask(task *Task) *Task {
+	if task == nil {
+		return nil
+	}
+
+	cp := *task
+	if task.DependsOn != nil {
+		cp.DependsOn = append([]string(nil), task.DependsOn...)
+	}
+	if task.WritesFiles != nil {
+		cp.WritesFiles = append([]string(nil), task.WritesFiles...)
+	}
+	return &cp
 }

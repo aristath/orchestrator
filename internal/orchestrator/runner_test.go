@@ -547,6 +547,7 @@ func TestMergeConflict_DoesNotBlockOthers(t *testing.T) {
 	// Count outcomes
 	mergedCount := 0
 	conflictCount := 0
+	failedCount := 0
 
 	for _, result := range results {
 		if result.TaskID == "clean-task" {
@@ -560,7 +561,16 @@ func TestMergeConflict_DoesNotBlockOthers(t *testing.T) {
 				mergedCount++
 			} else {
 				conflictCount++
+				if result.Success {
+					t.Errorf("%s should be unsuccessful when merge fails", result.TaskID)
+				}
+				if result.Error == nil {
+					t.Errorf("%s should include merge error", result.TaskID)
+				}
 			}
+		}
+		if !result.Success {
+			failedCount++
 		}
 	}
 
@@ -570,6 +580,29 @@ func TestMergeConflict_DoesNotBlockOthers(t *testing.T) {
 	}
 	if conflictCount < 1 {
 		t.Errorf("expected at least 1 conflict (second writer), got %d", conflictCount)
+	}
+	if failedCount < 1 {
+		t.Errorf("expected at least 1 failed result due to merge conflict, got %d", failedCount)
+	}
+
+	// Verify DAG status reflects merge conflict as failure.
+	writerAFinal, ok := dag.Get("writer-a")
+	if !ok {
+		t.Fatal("missing writer-a task in DAG")
+	}
+	writerBFinal, ok := dag.Get("writer-b")
+	if !ok {
+		t.Fatal("missing writer-b task in DAG")
+	}
+	conflictStatusCount := 0
+	if writerAFinal.Status == scheduler.TaskFailed {
+		conflictStatusCount++
+	}
+	if writerBFinal.Status == scheduler.TaskFailed {
+		conflictStatusCount++
+	}
+	if conflictStatusCount < 1 {
+		t.Errorf("expected at least one writer task to be marked failed after merge conflict, got %d", conflictStatusCount)
 	}
 
 	t.Logf("Results: %d merged, %d conflicted", mergedCount, conflictCount)
@@ -938,6 +971,124 @@ func testStoreForRunner(t *testing.T) persistence.Store {
 
 	return store
 }
+
+// TestInitialCheckpointPersistsTasksInDependencyOrder verifies startup DAG persistence
+// writes dependencies before dependent tasks.
+func TestInitialCheckpointPersistsTasksInDependencyOrder(t *testing.T) {
+	repoPath := setupTestRepo(t)
+	store := newOrderingStore()
+
+	dag := scheduler.NewDAG()
+	taskA := &scheduler.Task{
+		ID:          "task-a",
+		Name:        "Task A",
+		AgentRole:   "coder",
+		Prompt:      "A",
+		DependsOn:   []string{},
+		WritesFiles: []string{},
+		Status:      scheduler.TaskPending,
+		FailureMode: scheduler.FailHard,
+	}
+	taskB := &scheduler.Task{
+		ID:          "task-b",
+		Name:        "Task B",
+		AgentRole:   "coder",
+		Prompt:      "B",
+		DependsOn:   []string{"task-a"},
+		WritesFiles: []string{},
+		Status:      scheduler.TaskPending,
+		FailureMode: scheduler.FailHard,
+	}
+
+	if err := dag.AddTask(taskA); err != nil {
+		t.Fatalf("failed to add task-a: %v", err)
+	}
+	if err := dag.AddTask(taskB); err != nil {
+		t.Fatalf("failed to add task-b: %v", err)
+	}
+
+	wtMgr := worktree.NewWorktreeManager(worktree.WorktreeManagerConfig{
+		RepoPath:   repoPath,
+		BaseBranch: "main",
+	})
+
+	lockMgr := scheduler.NewResourceLockManager()
+	runner := NewParallelRunner(ParallelRunnerConfig{
+		WorktreeManager: wtMgr,
+		Store:           store,
+	}, dag, lockMgr)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Stop before execution loop; we only care about startup checkpoint behavior.
+
+	_, err := runner.Run(ctx)
+	if err == nil {
+		t.Fatal("expected context cancellation error")
+	}
+	if store.saveErr != nil {
+		t.Fatalf("SaveTask dependency order violation: %v", store.saveErr)
+	}
+	if len(store.saveOrder) != 2 {
+		t.Fatalf("expected 2 tasks to be persisted, got %d", len(store.saveOrder))
+	}
+	if store.saveOrder[0] != "task-a" || store.saveOrder[1] != "task-b" {
+		t.Fatalf("unexpected persistence order: %v", store.saveOrder)
+	}
+}
+
+// orderingStore records SaveTask call order and validates dependencies are saved first.
+type orderingStore struct {
+	mu        sync.Mutex
+	saved     map[string]bool
+	saveOrder []string
+	saveErr   error
+}
+
+func newOrderingStore() *orderingStore {
+	return &orderingStore{
+		saved:     make(map[string]bool),
+		saveOrder: []string{},
+	}
+}
+
+func (s *orderingStore) SaveTask(_ context.Context, task *scheduler.Task) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, depID := range task.DependsOn {
+		if !s.saved[depID] {
+			s.saveErr = fmt.Errorf("task %q persisted before dependency %q", task.ID, depID)
+			return s.saveErr
+		}
+	}
+
+	s.saved[task.ID] = true
+	s.saveOrder = append(s.saveOrder, task.ID)
+	return nil
+}
+
+func (s *orderingStore) GetTask(_ context.Context, _ string) (*scheduler.Task, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+func (s *orderingStore) UpdateTaskStatus(_ context.Context, _ string, _ scheduler.TaskStatus, _ string, _ error) error {
+	return nil
+}
+func (s *orderingStore) ListTasks(_ context.Context) ([]*scheduler.Task, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+func (s *orderingStore) SaveSession(_ context.Context, _, _, _ string) error {
+	return nil
+}
+func (s *orderingStore) GetSession(_ context.Context, _ string) (string, string, error) {
+	return "", "", fmt.Errorf("not implemented")
+}
+func (s *orderingStore) SaveMessage(_ context.Context, _, _, _ string) error {
+	return nil
+}
+func (s *orderingStore) GetHistory(_ context.Context, _ string) ([]persistence.ConversationTurn, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+func (s *orderingStore) Close() error { return nil }
 
 // TestCheckpointOnTaskCompletion verifies task state is checkpointed on completion.
 func TestCheckpointOnTaskCompletion(t *testing.T) {
