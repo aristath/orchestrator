@@ -41,7 +41,16 @@ The orchestrator enables a single developer to plan a task with an AI, then have
 
 ### Active
 
-(Fresh for next milestone — define via `/gsd:new-milestone`)
+## Current Milestone: v1.1 Settings & Configuration Refactor
+
+**Goal:** Replace the rigid, hardcoded config system with a dynamic three-layer model (Backends, Roles, Workflows) managed through polished dialog overlays.
+
+**Target features:**
+- Dynamic config model: Backends (CLI definitions), Roles (backend + model + prompt + behavior), Workflows (named role pipelines)
+- Dialog overlay system for settings management (Crush-inspired)
+- Consistent lipgloss theme/style system
+- List + CRUD for Backends, Roles, and Workflows in TUI
+- Runner/scheduler integration with new config shape
 
 ### Out of Scope
 
@@ -99,10 +108,12 @@ The orchestrator enables a single developer to plan a task with an AI, then have
 | DAG-based task scheduling | Dependency resolution enables maximum parallelism while respecting ordering. | ✓ Good |
 | Split-pane TUI for parallel agents | User monitors all running agents simultaneously. Natural fit for Bubble Tea. | ✓ Good |
 | Bubble Tea v1.x (not v2 beta) | Production reliability over bleeding-edge features. | ✓ Good |
+| Three-layer config: Backend → Role → Workflow | Role is the primary unit (backend + model + prompt + behavior). Backends are thin CLI definitions. Workflows chain roles. Replaces v1.0 Provider/Agent split. | — Pending |
+| Dialog overlays for settings (Crush-inspired) | Stack-based modal dialogs with keyboard-first navigation, lipgloss styling. Replaces hardcoded huh form. | — Pending |
 | modernc.org/sqlite (pure Go) | No CGO dependency, simpler cross-compilation. | ✓ Good |
 | Plain errgroup.Group for failure isolation | One task's failure doesn't cancel siblings — correct behavior for independent agents. | ✓ Good |
 | Per-backend-type circuit breakers | Right granularity — if Claude is down, still try Codex. Per-task too fine, global too coarse. | ✓ Good |
 | WAL mode + busy_timeout for SQLite | Handles concurrent agent writes without contention. | ✓ Good |
 
 ---
-*Last updated: 2026-02-10 after v1.0 milestone*
+*Last updated: 2026-02-11 after v1.1 milestone start*
