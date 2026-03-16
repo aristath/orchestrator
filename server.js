@@ -26,7 +26,26 @@ function parseFrontmatter(content) {
   return { meta, body: match[2].trim() };
 }
 
-async function loadMdFiles(dir) {
+async function loadMdFile(dir, name) {
+  const files = await readdir(dir);
+  for (const file of files) {
+    if (!file.endsWith(".md")) continue;
+    const content = await readFile(join(dir, file), "utf-8");
+    const { meta, body } = parseFrontmatter(content);
+    const itemName = meta.name || file.replace(/\.md$/, "");
+    if (itemName === name) {
+      return {
+        description: meta.description || name,
+        model: meta.model || null,
+        temperature: meta.temperature ? parseFloat(meta.temperature) : 0.7,
+        body,
+      };
+    }
+  }
+  return null;
+}
+
+async function loadAllMdFiles(dir) {
   const items = new Map();
   let files;
   try {
@@ -78,36 +97,41 @@ async function chat(role, userMessage) {
 }
 
 async function main() {
-  const roles = await loadMdFiles(ROLES_DIR);
-  const prompts = await loadMdFiles(PROMPTS_DIR);
+  // Load once at startup to discover names for registration
+  const roles = await loadAllMdFiles(ROLES_DIR);
+  const prompts = await loadAllMdFiles(PROMPTS_DIR);
   const server = new McpServer({
     name: "local-llm",
     version: "1.0.0",
   });
 
-  // Register tools from roles/*.md
+  // Register tools — re-read the .md file on every call
   for (const [name, role] of roles) {
     server.tool(
       name,
       role.description,
       { message: z.string().describe("The prompt or code to send") },
       async ({ message }) => {
-        const result = await chat(role, message);
+        const fresh = await loadMdFile(ROLES_DIR, name);
+        const result = await chat(fresh || role, message);
         return { content: [{ type: "text", text: result }] };
       }
     );
   }
 
-  // Register prompts from prompts/*.md
+  // Register prompts — re-read the .md file on every request
   for (const [name, prompt] of prompts) {
     server.prompt(
       name,
       prompt.description,
-      async () => ({
-        messages: [
-          { role: "user", content: { type: "text", text: prompt.body } },
-        ],
-      })
+      async () => {
+        const fresh = await loadMdFile(PROMPTS_DIR, name);
+        return {
+          messages: [
+            { role: "user", content: { type: "text", text: (fresh || prompt).body } },
+          ],
+        };
+      }
     );
   }
 
