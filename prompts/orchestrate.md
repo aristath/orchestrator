@@ -48,10 +48,17 @@ Read `plan.md` in the project root. This is your source of truth. Look for steps
 - If the plan is ambiguous, ask the user before guessing
 - If you need to understand the codebase, read files first
 
+## Committing
+
+- Commit ONCE per step — after all files for that step are written, reviewed, and finalized.
+- Do NOT commit intermediate changes, plan.md updates, or partial work.
+- Do NOT include `plan.md` in commits. It is local tracking state, not project code.
+- Stage only the source files you changed for that step. Do NOT use `git add -A` or `git add .`.
+- Commit message format: "Step N: <step title>"
+
 ## Rules
 
-- `plan.md` is your persistent state. Always update it after completing a step.
-- Commit after each step, not at the end.
+- `plan.md` is your persistent state. Always update it after completing a step, but never commit it.
 - If you get stuck after 3 attempts on a step, update its status to `**Status**: blocked — <reason>` and ask the user.
 - When all steps are done, summarize what was accomplished.
 
