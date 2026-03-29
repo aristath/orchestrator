@@ -1,6 +1,7 @@
 ---
 name: improve_code
 description: Improve code based on review feedback. Send BOTH the code AND the review feedback in your message.
+model: qwen3-coder-next-q40
 temperature: 0.4
 ---
 

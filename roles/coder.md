@@ -1,6 +1,7 @@
 ---
 name: generate_code
 description: Generate code from a task description. Include existing file contents and context in your message.
+model: qwen3-coder-next-q40
 temperature: 0.4
 ---
 

@@ -69,6 +69,8 @@ async function loadAllMdFiles(dir) {
   return items;
 }
 
+const HTTP_TIMEOUT = 30_000;
+
 async function chat(role, userMessage) {
   const body = {
     messages: [
@@ -81,19 +83,27 @@ async function chat(role, userMessage) {
     body.model = role.model;
   }
 
-  const res = await fetch(`${LLAMA_BASE}/v1/chat/completions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), HTTP_TIMEOUT);
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`llama-server ${res.status}: ${text}`);
+  try {
+    const res = await fetch(`${LLAMA_BASE}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`llama-server ${res.status}: ${text}`);
+    }
+
+    const data = await res.json();
+    return data.choices[0].message.content;
+  } finally {
+    clearTimeout(timeout);
   }
-
-  const data = await res.json();
-  return data.choices[0].message.content;
 }
 
 async function main() {

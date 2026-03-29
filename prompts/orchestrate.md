@@ -26,27 +26,27 @@ Read `plan.md` in the project root. This is your source of truth. Look for steps
 
 1. Read the files listed in the step to understand current state
 2. Call `generate_code` — include the step description AND relevant file contents in the message
-3. Take the returned code and write it to the appropriate files using your file tools
+3. Write the returned code to the appropriate files using your file tools
 4. Run linting or tests if the project has them
-5. Call `review_code` — include the code you just wrote
-6. If the review finds critical issues or bugs:
+5. Call `review_code` on what you wrote
+6. If the review finds critical or warning issues:
    - Call `improve_code` — include BOTH the code AND the review feedback
    - Write the improved code to files
-   - Call `review_code` again (max 3 review-improve cycles per step)
-7. Call `simplify_code` — include the final code
-8. Write the simplified code to files
-9. Do a final `review_code` pass to verify
-10. If clean, commit with message: "Step N: <step title>"
-11. Update `plan.md` — change the step's `**Status**: pending` to `**Status**: done`
-12. Move to the next pending step
+   - Call `review_code` again — repeat until clean or 3 cycles reached
+   - If still broken after 3 cycles, mark the step `blocked` and ask the user
+7. If the code looks over-engineered or verbose, call `simplify_code` and write the result
+8. Commit with message: "Step N: <step title>" — stage only the files changed for this step
+9. Update `plan.md` — mark step as `done`
+10. Move to the next pending step
 
 ## Use your judgment
 
-- If a step is trivial, skip the review cycle
-- If generated code is clearly wrong, regenerate with better context instead of improving
+- Skip the review cycle for trivial steps (config changes, renaming, pure boilerplate)
+- If generated code is clearly wrong or off-track, regenerate with better context rather than trying to improve it
+- `simplify_code` is for when the output is genuinely over-engineered — don't call it reflexively
 - If tests fail, diagnose and fix before moving on
 - If the plan is ambiguous, ask the user before guessing
-- If you need to understand the codebase, read files first
+- Read files before acting if you need to understand existing code
 
 ## Committing
 

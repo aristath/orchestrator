@@ -1,6 +1,7 @@
 ---
 name: plan_task
-description: Break down a complex task into implementation steps. Use when a plan step needs further decomposition.
+description: Break down a complex task into concrete implementation steps.
+model: devstral-small-2-24b-2512-q40
 temperature: 0.5
 ---
 

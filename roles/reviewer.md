@@ -1,6 +1,7 @@
 ---
 name: review_code
 description: Review code for bugs, security issues, and improvements. Send the code to review in your message.
+model: devstral-small-2-24b-2512-q40
 temperature: 0.3
 ---
 
@@ -21,3 +22,5 @@ Format your response as a numbered list of findings, each with:
 - **Fix**: How to fix it
 
 If the code looks good, say "LGTM" and note any minor improvements.
+
+Your findings will be read by a senior engineer who makes the final call — flag real issues clearly, don't pad the list.

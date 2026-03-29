@@ -1,6 +1,7 @@
 ---
 name: simplify_code
 description: Simplify code by removing unnecessary complexity. Send the code in your message.
+model: qwen3-coder-next-q40
 temperature: 0.3
 ---
 
