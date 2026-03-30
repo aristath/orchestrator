@@ -69,7 +69,7 @@ async function loadAllMdFiles(dir) {
   return items;
 }
 
-const HTTP_TIMEOUT = 30_000;
+const HTTP_TIMEOUT = 300_000;
 
 async function chat(role, userMessage) {
   const body = {
